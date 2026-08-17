@@ -11,11 +11,78 @@ than running a project.
 
 ---
 
-## Get a cluster
+## Prerequisites
 
-You need Docker, `k3d` and `kubectl` installed first. Per-OS instructions are in
-the platform team's `k3d-local-cluster-setup.md`; the summary is in
-[`docs/cluster.md`](docs/cluster.md).
+Four things, once per machine. `helm` is not used by the scripts but is needed
+for platform work, so install it while you are here.
+
+### Docker
+
+| | |
+|---|---|
+| **Linux** | install the engine, then `sudo usermod -aG docker $USER && newgrp docker` |
+| **macOS** | Docker Desktop — open Settings and **give it at least 8 GB of memory** |
+| **Windows** | Docker Desktop with the **WSL 2 backend**, 8 GB. Enable WSL integration for your distro under Settings → Resources |
+
+Docker must be *running*, not just installed. Check with `docker run --rm hello-world`.
+
+### k3d, kubectl, helm
+
+**Linux**
+
+```bash
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl
+
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+```
+
+**macOS**
+
+```bash
+brew install k3d kubectl helm
+```
+
+**Windows** — use whichever package manager you have:
+
+```powershell
+winget install -e --id k3d.k3d; winget install -e --id Kubernetes.kubectl; winget install -e --id Helm.Helm
+choco install k3d kubernetes-cli kubernetes-helm -y
+scoop install k3d kubectl helm
+```
+
+Open a new terminal afterwards so it can find the new commands. Then check:
+
+```bash
+k3d version && kubectl version --client && helm version
+```
+
+`cluster-up.sh` checks all of this for you and prints the right install command
+for your OS if something is missing — so on Linux and macOS you can skip
+straight to running it and let it tell you.
+
+### Ports 80 and 443 must be free
+
+Cluster creation fails if either is taken, and k3d cannot change port mappings
+afterwards — so a cluster built without them has to be deleted and rebuilt.
+
+| | Check | Usual culprit |
+|---|---|---|
+| **Linux** | `sudo ss -lptn 'sport = :80'` | nginx or Apache — `sudo systemctl stop nginx` |
+| **macOS** | `sudo lsof -iTCP:80 -sTCP:LISTEN -n -P` | built-in Apache — `sudo apachectl stop` |
+| **Windows** | `netstat -ano \| findstr ":80 "` | IIS — `net stop w3svc`. If the owner is `System`, that is `http.sys` — `net stop http` |
+
+**Do not work around a conflict by mapping different host ports.** Platform URLs,
+Keycloak's issuer URL and every OIDC redirect assume 80 and 443.
+
+Full per-OS detail, including troubleshooting, is in the platform team's
+`k3d-local-cluster-setup.md`. The summary above is enough to get started.
+
+---
+
+## Get a cluster
 
 **Linux, macOS, or Windows via WSL / Git Bash:**
 
