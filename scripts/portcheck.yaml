@@ -1,0 +1,45 @@
+# Temporary workload used to prove the port path works:
+#   localhost:80  ->  nodePort 30080  ->  this Service  ->  these Pods
+#
+# There is no ingress controller in this cluster (see docs/cluster.md), so this
+# is how v0 is verified instead. Apply it, curl localhost, then delete it.
+#
+#   kubectl apply -f scripts/portcheck.yaml
+#   kubectl rollout status deployment/portcheck
+#   curl http://localhost
+#   kubectl delete -f scripts/portcheck.yaml
+#
+# Nothing in here is part of the platform. The cluster must be empty again
+# afterwards.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portcheck
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: portcheck
+  template:
+    metadata:
+      labels:
+        app: portcheck
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portcheck
+spec:
+  type: NodePort
+  selector:
+    app: portcheck
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080

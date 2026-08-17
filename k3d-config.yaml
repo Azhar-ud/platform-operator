@@ -1,0 +1,54 @@
+# The team-standard local development cluster, as data.
+#
+# This is the cluster defined in the platform team's k3d-local-cluster-setup.md,
+# expressed as a k3d config file instead of a long command line. Same cluster,
+# same flags - but versioned, diffable in a pull request, and creatable with one
+# command that works identically in bash, zsh and PowerShell:
+#
+#   k3d cluster create --config k3d-config.yaml
+#
+# Do not change the name or the port mappings here without agreeing it with the
+# platform team. Ports 80/443 -> nodePorts 30080/30443 are a contract: the
+# ingress controller the platform chart installs later publishes itself on
+# exactly those node ports, which is what connects it to localhost.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  name: datum-dev
+
+servers: 1
+agents: 2
+
+# The API server, reachable from the host.
+#
+# The "127.0.0.1" host matters and is not cosmetic. Without it k3d writes
+# host.docker.internal into the kubeconfig, which Docker Desktop maps to the
+# machine's LAN IP; some firewalls drop that, and kubectl then hangs for 32
+# seconds and fails while the cluster is perfectly healthy.
+kubeAPI:
+  host: "127.0.0.1"
+  hostIP: "127.0.0.1"
+  hostPort: "6550"
+
+ports:
+  - port: 80:30080
+    nodeFilters:
+      - loadbalancer
+  - port: 443:30443
+    nodeFilters:
+      - loadbalancer
+
+options:
+  k3d:
+    # The config-file default is false, unlike the CLI flag. Set it so the
+    # command only returns once the cluster is actually ready.
+    wait: true
+  k3s:
+    extraArgs:
+      # k3s ships Traefik and enables it by default. The platform chart installs
+      # its own ingress controller, and two controllers cannot share ports 80
+      # and 443. Which controller ships is still open - see A-06.
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*

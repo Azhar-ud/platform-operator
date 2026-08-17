@@ -1,0 +1,12 @@
+# python
+.venv/
+__pycache__/
+*.py[cod]
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# local scratch
+*.local.yaml

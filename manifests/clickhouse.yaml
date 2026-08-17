@@ -1,0 +1,11 @@
+apiVersion: platform.datumlabs.io/v1alpha1
+kind: ApplicationManifest
+metadata: 
+  name: clickhouse
+spec: 
+  identity:
+    driver: ldap-bridge
+  entitlements: 
+    mode: push
+  surface:
+    host: clickhouse.datum.local

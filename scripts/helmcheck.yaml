@@ -1,0 +1,13 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: helmcheck
+  namespace: kube-system
+spec:
+  chart: podinfo
+  repo: https://stefanprodan.github.io/podinfo
+  version: "6.7.1"
+  targetNamespace: smoketest
+  createNamespace: true
+  valuesContent: |
+    replicaCount: 1

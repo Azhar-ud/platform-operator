@@ -1,0 +1,7 @@
+apiVersion: platform.datumlabs.io/v1alpha1
+kind: ApplicationManifest
+metadata:
+  name: broken
+spec:
+  identity:
+    driver: gateway
