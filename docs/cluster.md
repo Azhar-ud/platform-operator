@@ -38,46 +38,53 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-## Known gap: there is no ingress controller
+## Ingress: HAProxy, decided and installable
 
-**This is deliberate. It is recorded here so it is not rediscovered as a bug.**
+k3s ships Traefik; the team cluster disables it at creation because the platform
+brings its own controller. That controller is now decided — **HAProxy** (A-06),
+with a setup doc shared by the platform team on 18 Aug (`haproxy-ingress-setup.md`,
+plus its prerequisite `tls-dns-setup.md` covering A-01/A-02).
 
-k3s ships Traefik and enables it by default. The team-standard cluster disables it,
-for two reasons:
+This repo carries that setup as one idempotent script:
 
-1. The Datum platform Helm chart installs its own ingress controller, and two
-   controllers cannot both hold ports 80 and 443.
-2. Which controller ships is still an open decision — ticket `A-06`,
-   "HAProxy vs Traefik decision record."
-
-So on `datum-dev`:
-
+```bash
+./scripts/ingress-up.sh
 ```
-kubectl get ingressclass     # No resources found
+
+which, on a running `datum-dev`:
+
+1. creates the `*.datum.local` wildcard certificate with `mkcert` into `certs/`
+   (gitignored) if missing,
+2. loads it as the `datum-platform-tls` Secret in namespace `datum-platform` —
+   the name is a contract: cert-manager fills the same Secret on a real install,
+3. installs the HAProxy ingress controller, chart pinned at `1.52.1`, publishing
+   NodePorts **30080/30443** (exactly what `k3d-config.yaml` maps host 80/443 to),
+   default TLS from that Secret, HTTP→HTTPS 301,
+4. applies a `coredns-custom` ConfigMap so **pods** resolve `*.datum.local` to the
+   ingress service too. This is not optional once identity lands: Keycloak checks
+   the issuer URL in every token, so pod and browser must resolve the same name.
+
+### One-time per machine (not scriptable, needs your password)
+
+```bash
+sudo pacman -S mkcert        # or brew install mkcert; other OSes: tls-dns-setup.md
+mkcert -install              # create + trust the local CA, then restart the browser
+echo "127.0.0.1 datum.local iam.datum.local apps.datum.local smoke.datum.local myapps.datum.local clickhouse.datum.local dagster.datum.local chat.datum.local" | sudo tee -a /etc/hosts
 ```
+
+Hosts files cannot do wildcards, so every hostname is listed — when a new
+application arrives, its hostname joins that line. That is the whole maintenance
+cost. (`nslookup` ignores hosts files by design; check with `ping -c1 iam.datum.local`.)
 
 ### What this changes for operator development
 
-The construction plan for this operator assumed Traefik would be present and that
-v0 would finish with a hostname answering over HTTP. That is not possible here.
+`surface.host` values in manifests use `*.datum.local` (they already do). Once an
+application publishes an Ingress with class `haproxy` — or once route generation
+from `surface.host` lands (ticket `A-31`, platform/IAM side, not this operator) —
+it is reachable at `https://<host>` with a padlock and no `-k`.
 
-- Applications installed by the operator **cannot be reached in a browser by hostname**
-  until the platform chart lands.
-- Verify work with `kubectl get pods`, `kubectl get appman`, and `kubectl port-forward`
-  when a UI genuinely needs to be seen.
-- The v0 acceptance test is therefore the **port path**, not ingress: put something on
-  nodePort 30080 temporarily and confirm `curl http://localhost` reaches it. That proves
-  the same wiring without needing a controller.
-
-### Where it plugs back in
-
-The `surface.host` field in the `ApplicationManifest` contract exists to feed this
-layer — it is the hostname an Ingress rule gets generated from once a controller
-exists. Generating those routes is ticket `A-31`, owned by the platform/IAM side, not
-by this operator.
-
-This operator's responsibility is that the field exists, is required, and is filled in
-by real applications.
+Until an app publishes routes, verify operator work with `kubectl get appman`,
+`kubectl get pods`, and `kubectl port-forward` where a UI must be seen.
 
 ## Verified capabilities
 

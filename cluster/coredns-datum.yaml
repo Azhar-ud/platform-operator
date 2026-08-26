@@ -1,0 +1,39 @@
+# In-cluster DNS for *.datum.local, from the platform team's tls-dns-setup.md
+# (A-02). Pods need the same hostnames the browser uses: Keycloak checks the
+# issuer URL in every token, so a pod calling https://iam.datum.local must reach
+# the same name or logins fail with a confusing issuer-mismatch error.
+#
+# This is a coredns-custom ConfigMap, NOT an edit to the coredns ConfigMap
+# itself — k3s owns that file and rewrites it on restart, silently discarding
+# hand edits. coredns-custom is the mechanism k3s is built to merge in.
+#
+# Two details that are easy to get wrong:
+#   - `answer auto` is required on the regex rule. Without it the answer section
+#     comes back owned by the cluster.local name and a strict resolver drops it.
+#   - The regex does not match the bare `datum.local` — that needs the separate
+#     `exact` rule.
+#
+# The rewrite target is the HAProxy ingress service installed by
+# scripts/ingress-up.sh. If that release name ever changes, change it here too.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  datum.server: |
+    datum.local {
+      rewrite stop {
+        name exact datum.local haproxy-ingress-kubernetes-ingress.datum-platform.svc.cluster.local
+        answer auto
+      }
+      rewrite stop {
+        name regex (.*)\.datum\.local haproxy-ingress-kubernetes-ingress.datum-platform.svc.cluster.local
+        answer auto
+      }
+      kubernetes cluster.local in-addr.arpa ip6.arpa {
+        pods insecure
+        fallthrough in-addr.arpa ip6.arpa
+      }
+      forward . /etc/resolv.conf
+    }

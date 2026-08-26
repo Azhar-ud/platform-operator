@@ -111,5 +111,5 @@ kubectl config use-context "k3d-$CLUSTER" >/dev/null
 echo
 kubectl get nodes
 echo
-echo "Ready. There is no ingress controller in this cluster by design."
-echo "See docs/cluster.md before wondering why hostnames do not resolve."
+echo "Ready. The cluster has no ingress controller yet - that is the next layer:"
+echo "  ./scripts/ingress-up.sh   # HAProxy + *.datum.local TLS (see docs/cluster.md)"

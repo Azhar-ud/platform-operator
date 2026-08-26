@@ -10,3 +10,7 @@ __pycache__/
 
 # local scratch
 *.local.yaml
+
+# TLS material - the wildcard cert is made per-machine by mkcert and must
+# never be committed; the CA key on this machine can forge any site.
+certs/

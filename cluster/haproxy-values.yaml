@@ -1,0 +1,37 @@
+# HAProxy Kubernetes Ingress Controller — values for datum-dev.
+#
+# Taken unchanged from the platform team's haproxy-ingress-setup.md (A-06/A-07,
+# shared 18 Aug). A file rather than --set flags on purpose: this content becomes
+# the platform chart's ingress values unchanged once that repo carries it.
+#
+# The two node ports are the whole game. k3d fixed host 80 -> 30080 and
+# 443 -> 30443 at cluster creation (see k3d-config.yaml) and they cannot be
+# changed afterwards. Any other node port leaves the controller unreachable
+# from the host with no error to explain why.
+controller:
+  ingressClass: haproxy
+  ingressClassResource:
+    name: haproxy
+    default: true          # so Ingress objects don't each need ingressClassName
+
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30080          # k3d maps host 80 here
+      https: 30443         # k3d maps host 443 here
+    enablePorts:
+      quic: false          # QUIC would claim 30443/UDP, which k3d doesn't map
+
+  defaultTLSSecret:
+    enabled: true
+    secretNamespace: datum-platform
+    secret: datum-platform-tls
+
+  config:
+    ssl-redirect: "true"
+    # HAProxy defaults to 302; the team standard (A-07) requires 301 or 308.
+    ssl-redirect-code: "301"
+    # Without this the Location header carries HAProxy's INTERNAL https port
+    # (8443), which nothing outside the pod can reach. Found by the smoke
+    # test: curl -sI http://iam.datum.local said "location: https://...:8443/".
+    ssl-redirect-port: "443"

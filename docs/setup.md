@@ -53,6 +53,31 @@ Open a new terminal afterwards, then check:
 k3d version && kubectl version --client && helm version
 ```
 
+## mkcert — for https://*.datum.local
+
+Needed by `./scripts/ingress-up.sh`, once per machine. It creates a local
+certificate authority your OS trusts, so `*.datum.local` pages get a padlock
+instead of a warning.
+
+| | |
+|---|---|
+| Linux (Arch) | `sudo pacman -S mkcert` |
+| Linux (other) | pinned binary — see the team's `tls-dns-setup.md` |
+| macOS | `brew install mkcert` (`brew install nss` too if you use Firefox) |
+| Windows | pinned binary, **not winget** — see the team's `tls-dns-setup.md` |
+
+Then `mkcert -install` (asks for your password once) and fully restart the
+browser. Finally the hosts line — hosts files cannot do wildcards, so each
+hostname is listed:
+
+```bash
+echo "127.0.0.1 datum.local iam.datum.local apps.datum.local smoke.datum.local myapps.datum.local clickhouse.datum.local dagster.datum.local chat.datum.local" | sudo tee -a /etc/hosts
+```
+
+The `rootCA-key.pem` in `mkcert -CAROOT` can forge a certificate for any site on
+your machine: never commit it, never paste it into Slack. On a new machine just
+run `mkcert -install` again.
+
 ## Ports 80 and 443 must be free
 
 Cluster creation fails if either is taken, and k3d cannot change port mappings
@@ -86,8 +111,10 @@ Windows terminal, not from WSL.
 
 ## Verifying the setup
 
-There is no ingress controller to test through, so the port path is proven one
-layer lower: a temporary NodePort workload on 30080, reached over `localhost:80`.
+Before the ingress layer is installed, the port path is proven one layer lower:
+a temporary NodePort workload on 30080, reached over `localhost:80`. (After
+`./scripts/ingress-up.sh`, the same wiring is proven better by an Ingress on a
+`*.datum.local` hostname — this fixture stays useful for debugging the raw path.)
 
 ```bash
 kubectl apply -f scripts/portcheck.yaml
