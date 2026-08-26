@@ -1,0 +1,5 @@
+# Pinned exactly, like every *-tool-versions.txt in the platform repos.
+# Install into a venv:  python -m venv .venv && .venv/bin/pip install -r operator/requirements.txt
+kopf==1.44.6
+kubernetes==36.0.3
+pyyaml==6.0.3
