@@ -1,3 +1,6 @@
+# Rejected because a required field is missing: there is no `surface`.
+#
+#   spec.surface: Required value
 apiVersion: platform.datumlabs.io/v1alpha1
 kind: ApplicationManifest
 metadata:

@@ -8,8 +8,8 @@ spec:
   names:
     kind: ApplicationManifest
     plural: applicationmanifests
-    singular: applicationmanifest
-    shortNames: [appman]
+    shortNames:
+      - appman
   versions:
     - name: v1alpha1
       served: true
@@ -29,24 +29,75 @@ spec:
           properties:
             spec:
               type: object
-              required: [identity, surface]
+              required:
+                - identity
+                - surface
               properties:
+
                 identity:
                   type: object
+                  required:
+                    - driver
+                  properties:
+                    driver:
+                      type: string
+                      enum:
+                        - native-oidc
+                        - gateway
+                        - ldap-bridge
+
                 entitlements:
                   type: object
-                reconciler:
-                  type: object
+                  properties:
+                    grantableObjects:
+                      type: array
+                      items:
+                        type: string
+                    actions:
+                      type: array
+                      items:
+                        type: string
+                    granularity:
+                      type: string
+                      enum:
+                        - application
+                        - object
+                        - row
+
                 surface:
                   type: object
+                  required:
+                    - host
+                  properties:
+                    host:
+                      type: string
+
+                reconciler:
+                  type: object
+                  properties:
+                    mode:
+                      type: string
+                      enum:
+                        - push
+                        - delegate
+                        - gate
+                    driver:
+                      type: string
+
                 dependencies:
                   type: array
                   items:
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
+
                 observability:
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
+
                 machineIdentity:
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
+
             status:
               type: object
               x-kubernetes-preserve-unknown-fields: true

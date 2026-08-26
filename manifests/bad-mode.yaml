@@ -1,0 +1,17 @@
+# Rejected because `reconciler.mode` is not one the contract supports. This
+# also proves the mode lives on `reconciler` now: putting it under
+# `entitlements` is itself rejected as an unknown field.
+#
+#   spec.reconciler.mode: Unsupported value: "hope":
+#     supported values: "push", "delegate", "gate"
+apiVersion: platform.datumlabs.io/v1alpha1
+kind: ApplicationManifest
+metadata:
+  name: bad-mode
+spec:
+  identity:
+    driver: native-oidc
+  reconciler:
+    mode: hope
+  surface:
+    host: bad-mode.datum.local

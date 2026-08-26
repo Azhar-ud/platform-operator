@@ -1,0 +1,14 @@
+# Rejected because a value is not one the contract supports. Every required
+# field is present; only `driver` is wrong.
+#
+#   spec.identity.driver: Unsupported value: "magic":
+#     supported values: "native-oidc", "gateway", "ldap-bridge"
+apiVersion: platform.datumlabs.io/v1alpha1
+kind: ApplicationManifest
+metadata:
+  name: bad-driver
+spec:
+  identity:
+    driver: magic
+  surface:
+    host: bad-driver.datum.local

@@ -1,11 +1,14 @@
 apiVersion: platform.datumlabs.io/v1alpha1
 kind: ApplicationManifest
-metadata: 
+metadata:
   name: clickhouse
-spec: 
+spec:
   identity:
     driver: ldap-bridge
-  entitlements: 
+  entitlements:
+    grantableObjects: [database, table, view]
+    actions: [read, write, admin]
+  reconciler:
     mode: push
   surface:
     host: clickhouse.datum.local
