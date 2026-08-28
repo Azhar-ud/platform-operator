@@ -117,6 +117,30 @@ spec:
                     healthCheck:
                       type: string
 
+                # PROTOTYPE EXTENSION — not yet in the polaris contract. v4
+                # grew this field because a chart cannot be installed without
+                # knowing which chart, and a real requirement is the only
+                # thing that grows the contract. Everything else in this file
+                # is verbatim from polaris; this block goes there as its own
+                # PR — README changelog row, upstream note — before the
+                # operator moves.
+                source:
+                  type: object
+                  required:
+                    - chart
+                    - repo
+                    - version
+                  properties:
+                    chart:
+                      type: string
+                    repo:
+                      type: string
+                    version:
+                      type: string
+                    # Chart values, as the YAML string helm-controller takes.
+                    values:
+                      type: string
+
                 # How a permission decision becomes a real grant. `gate` is a
                 # Datum extension to DPS P1's push|delegate, added because
                 # Dagster has no permission system to push into or delegate to.

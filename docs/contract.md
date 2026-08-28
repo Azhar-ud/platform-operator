@@ -4,7 +4,10 @@ Every application on the platform declares itself in the same shape. This is tha
 shape: what each field promises, and who keeps the promise.
 
 Schema: [`crd/applicationmanifest.yaml`](../crd/applicationmanifest.yaml), version
-`v1alpha1`.
+`v1alpha1`. The contract's home is now polaris
+(`gitops/platform/application-manifest/`), merged there via PR #7 — the copy
+here is verbatim from polaris **plus one prototype extension, `source`**, which
+goes to polaris as its own PR before the operator moves.
 
 ```yaml
 apiVersion: platform.datumlabs.io/v1alpha1
@@ -12,8 +15,15 @@ kind: ApplicationManifest
 metadata:
   name: clickhouse
 spec:
+  source:
+    chart: clickhouse
+    repo: https://charts.bitnami.com/bitnami
+    version: "6.2.16"  # pin it. always
+    values: |
+      shards: 1
+      replicaCount: 1
   identity:
-    driver: ldap-bridge
+    driver: gateway
   entitlements:
     grantableObjects: [database, table, view]
     actions: [read, write, admin]
@@ -21,29 +31,67 @@ spec:
     mode: push
   surface:
     host: clickhouse.datum.local
+    launchUrl: https://clickhouse.datum.local/play
+    embed: link
+    healthCheck: /ping
 ```
 
 ## The fields
 
 | Field | Promises | Required |
 |---|---|---|
-| `identity` | that users can log in, even if the application cannot authenticate them itself | yes |
+| `source` | which chart installs this application — repo, chart, pinned version | no |
+| `identity` | that users can log in, and that accounts can be provisioned in | yes |
 | `entitlements` | what there is to grant: the objects and actions permissions are made of | no |
-| `surface` | that the application has one address the platform knows how to reach | yes |
+| `surface` | that the platform can reach the application, and that my-apps can draw its tile | yes |
 | `reconciler` | how a permission decision becomes real inside the application | no |
 | `dependencies` | what must exist before it can start | no |
 | `observability` | where its logs, metrics and traces go | no |
 | `machineIdentity` | how the application authenticates as itself, not as a person | no |
 
-### `identity.driver`
+### `source`
 
-How users log in. One of three values, chosen by what the application can do:
+Where the application's software comes from: a Helm chart, named by `repo`,
+`chart` and `version` — pinned always, because "whatever is newest" is a state
+nobody can roll back to — plus optional `values`, the YAML string handed to
+Helm as-is.
+
+Grew at v4, because the operator could not install a chart without knowing
+which chart, and a real requirement is the only thing that grows the contract.
+An application that ships nothing to install (or is installed by other means)
+omits it; the operator answers `phase: Unmanaged` and manages the namespace
+only.
+
+This is the one field the operator itself consumes end to end: it becomes a
+`HelmChart` object that k3s's helm-controller installs. It is not yet in the
+polaris contract nor in DPS P1 — taking it there is open work, alongside the
+extensions already proposed in
+[datum-standards#35](https://github.com/datumlabsio/datum-standards/issues/35).
+
+One known wrinkle, left deliberately: the ingress hostname currently appears
+twice — as `surface.host` (the contract's routing answer) and inside
+`source.values` (the chart's ingress setting). The operator should eventually
+derive the second from the first; it does not yet.
+
+### `identity`
+
+Two questions live here since the polaris review (PR #7). `sync` and
+`scimEndpoint` are DPS P1's provisioning question — how accounts get created
+inside the application (`scim`, `custom` or `none`); optional until something
+provisions accounts. `driver` is the authentication question — how a person
+logs in — and is a Datum extension, proposed upstream in
+[datum-standards#35](https://github.com/datumlabsio/datum-standards/issues/35).
 
 | Driver | Pick it when | Proven by |
 |---|---|---|
 | `native-oidc` | the application logs people in itself. Cleanest — it knows who the user is | LibreChat |
-| `gateway` | the application has no login. A proxy in front handles it and passes identity on | Dagster |
-| `ldap-bridge` | native clients such as JDBC or a CLI that will never speak OIDC | ClickHouse |
+| `gateway` | the application cannot speak OIDC itself. A proxy in front defers to the platform's Keycloak session and passes identity on — my-apps SSO carries through | Dagster, ClickHouse |
+| `ldap-bridge` | native clients such as JDBC or a CLI must verify central credentials. **Nothing implements this yet** — Keycloak does not serve LDAP and no bridge is ticketed; the value declares a direction | — |
+
+ClickHouse moved from `ldap-bridge` to `gateway` in the PR #7 review: humans
+reach it through the auth proxy on its HTTP interface, native clients use
+service accounts, and the reconciler needs neither — it writes grants with its
+own admin account.
 
 Consumed by the identity work — Keycloak, SSO, the login itself. Not by this operator.
 
@@ -88,13 +136,21 @@ grantable and how a grant is materialised have different consumers, and an
 application needs to state both. Consumed by the permission graph and its
 enforcement machinery. Not by this operator.
 
-### `surface.host`
+### `surface`
 
-The hostname the application is reached on. Becomes an Ingress rule once an
-ingress controller exists — see `A-31`, which is not this operator's work.
+Since the polaris review, this is DPS P1's my-apps entry point plus one Datum
+extension. `launchUrl` is what a tile on the my-apps home screen opens,
+`embed` is how it opens (the spec never enumerates its values, so neither does
+the schema — the my-apps design owns that), and `healthCheck` is how my-apps
+tells whether the application is alive. `host` is the extension: the routing
+answer, the hostname the platform serves the application on — proposed
+upstream with the others in datum-standards#35.
 
-There is no ingress controller in the development cluster today, so nothing
-consumes this field yet. See [`cluster.md`](cluster.md).
+The development cluster runs the team ingress layer (HAProxy, `*.datum.local`
+TLS — see [`cluster.md`](cluster.md)), so `host` is consumed for real: it is
+how `https://clickhouse.datum.local/ping` answers. Today the Ingress rule
+itself comes from the chart via `source.values` — see the wrinkle noted under
+`source`.
 
 ### The three unspecified fields
 
@@ -105,13 +161,15 @@ than a guess.
 
 (`reconciler` used to be on this list, ambiguous between "how grants are
 materialised" and "how the application is installed". Decided 2026-08-24: it
-means grants, matching datum-standards. Installation — chart, repo, version —
-gets its own field when it arrives at v4, likely named `source`.)
+means grants, matching datum-standards. Installation got its own field at v4,
+named `source` — exactly as predicted here.)
 
 Each should be tightened the moment it is settled. Current best understanding:
 
-- **`dependencies`** — an array of what must exist first. ClickHouse needs
-  Zookeeper; LibreChat needs Mongo and a search index.
+- **`dependencies`** — what must exist first. ClickHouse needs Zookeeper;
+  LibreChat needs Mongo and a search index. The PR #7 review fixed its shape
+  from array to open object: DPS's own example carries `requires` and
+  `namespace` keys.
 - **`observability`** — where logs and metrics go. Collection happens at the node,
   so this likely only declares what the application emits.
 - **`machineIdentity`** — service-to-service authentication. Distinct from
@@ -121,12 +179,13 @@ Each should be tightened the moment it is settled. Current best understanding:
 
 | Field | Owned here | Consumed by |
 |---|---|---|
-| `identity` | the field, its values, its validation | Keycloak / SSO |
-| `entitlements` | same | the permission graph |
-| `reconciler` | same | the permission graph's enforcement machinery |
-| `surface` | same | the ingress controller (`A-31`) |
-| `observability` | same | log collection and the audit store |
-| `dependencies`, `machineIdentity` | same | undecided |
+| `source` | prototype extension, pending polaris | **this operator** → k3s helm-controller |
+| `identity` | via polaris | Keycloak / SSO |
+| `entitlements` | via polaris | the permission graph |
+| `reconciler` | via polaris | the permission graph's enforcement machinery |
+| `surface` | via polaris | the ingress layer; my-apps tiles (`launchUrl`) |
+| `observability` | via polaris | log collection and the audit store |
+| `dependencies`, `machineIdentity` | via polaris | undecided |
 
 This operator's responsibility is that every field exists, is honest, and is filled
 in by applications that really run. What reads them is somebody else's work, and
@@ -162,11 +221,12 @@ strict decoding error: unknown field "spec.entitlements.mode",
 unknown field "spec.identity.driver", unknown field "spec.surface.host"
 ```
 
-So each field is either described or explicitly opened. The four settled fields
-(`identity`, `entitlements`, `reconciler`, `surface`) are described, which means
-the cluster enforces the three drivers and three modes rather than this document
-describing them. The three unspecified fields are opened, because inventing a
-shape for them would be worse than leaving them undecided.
+So each field is either described or explicitly opened. The five settled fields
+(`source`, `identity`, `entitlements`, `reconciler`, `surface`) are described,
+which means the cluster enforces the three drivers, the three modes and the
+pinned chart coordinates rather than this document describing them. The three
+unspecified fields are opened, because inventing a shape for them would be
+worse than leaving them undecided.
 
 ## Changing this contract
 
@@ -190,6 +250,18 @@ can read.
   which puts push/delegate on `reconciler` — reconciled before any consumer
   built against the old shape. Only stored manifest (`clickhouse`) migrated by
   re-applying. `gate` kept as a local extension; proposing it upstream is open.
+- **2026-08-28** — the contract's home moved to polaris
+  (`gitops/platform/application-manifest/`, PR #7), and its review restored
+  what this schema had silently replaced: `identity` regained `sync` and
+  `scimEndpoint`, `surface` regained `launchUrl`, `embed` and `healthCheck`,
+  `dependencies` became an open object. The extensions (`driver`, `gate`,
+  `host`) are flagged and proposed in
+  [datum-standards#35](https://github.com/datumlabsio/datum-standards/issues/35).
+  ClickHouse's driver decided as `gateway`. This copy synced verbatim.
+- **2026-08-28** — `source` added (`chart`, `repo`, `version`, `values`).
+  Forced by v4: the operator installs software by delegating to Helm, and a
+  chart cannot be installed without knowing which chart. Prototype extension —
+  not yet in polaris or DPS; taking it there is open work.
 
 ## Not yet covered
 
