@@ -1,3 +1,13 @@
+# P1, the protocol an application implements to join the platform (DPS).
+#
+# This teaches the cluster the noun. It is inert on its own: the API server
+# stores and validates ApplicationManifests, and a reconciler acts on them.
+# Registering it here, in the platform layer, means every application directory
+# under ../../applications/ has the type available before it is reconciled.
+#
+# Four fields are described, so the API server enforces their values. Three are
+# open, because their shape is not settled and inventing one would harden a
+# guess into a contract. See README.md.
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -15,6 +25,8 @@ spec:
       served: true
       storage: true
       subresources:
+        # Intent and observed reality get separate endpoints, so a reconciler
+        # writing status cannot overwrite the spec a person wrote.
         status: {}
       additionalPrinterColumns:
         - name: Phase
@@ -29,11 +41,20 @@ spec:
           properties:
             spec:
               type: object
+              # Only these two have a consumer today. Requiring a field with no
+              # consumer buys filler content, not conformance.
               required:
                 - identity
                 - surface
               properties:
 
+                # DPS P1 field 1, plus a Datum extension. The spec's identity
+                # answers provisioning — how accounts sync into the application
+                # (`sync`, `scimEndpoint`). `driver` answers authentication —
+                # how a person logs in — and is a Datum extension like `gate`,
+                # proposed upstream together with it. Only `driver` is required:
+                # the identity layer consumes it today, while nothing provisions
+                # accounts yet.
                 identity:
                   type: object
                   required:
@@ -45,7 +66,18 @@ spec:
                         - native-oidc
                         - gateway
                         - ldap-bridge
+                    sync:
+                      type: string
+                      enum:
+                        - scim
+                        - custom
+                        - none
+                    scimEndpoint:
+                      type: string
 
+                # What there is to grant: the objects and actions permissions
+                # are made of. Omitted by an application that has no permission
+                # system of its own.
                 entitlements:
                   type: object
                   properties:
@@ -64,6 +96,13 @@ spec:
                         - object
                         - row
 
+                # DPS P1 field 4, plus a Datum extension. The spec's surface is
+                # the my-apps entry point: what a tile opens (launchUrl), how it
+                # opens (embed), and how to tell the app is alive (healthCheck).
+                # `host` is our extension for routing — the address the platform
+                # serves the application on — proposed upstream with the others.
+                # embed is deliberately not an enum: the spec never enumerates
+                # its values, and the my-apps design will settle them.
                 surface:
                   type: object
                   required:
@@ -71,7 +110,16 @@ spec:
                   properties:
                     host:
                       type: string
+                    launchUrl:
+                      type: string
+                    embed:
+                      type: string
+                    healthCheck:
+                      type: string
 
+                # How a permission decision becomes a real grant. `gate` is a
+                # Datum extension to DPS P1's push|delegate, added because
+                # Dagster has no permission system to push into or delegate to.
                 reconciler:
                   type: object
                   properties:
@@ -84,11 +132,13 @@ spec:
                     driver:
                       type: string
 
+                # Open until a real requirement settles their shape. A bare
+                # `type: object` would permit only `{}`, so each is opened
+                # explicitly rather than left to look permissive while
+                # rejecting all content.
                 dependencies:
-                  type: array
-                  items:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
 
                 observability:
                   type: object
@@ -98,6 +148,8 @@ spec:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
 
+            # Written by the reconciler, not by hand. Open until the phases and
+            # conditions it reports are settled.
             status:
               type: object
               x-kubernetes-preserve-unknown-fields: true
