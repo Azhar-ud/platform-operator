@@ -15,6 +15,7 @@
 
 import base64
 import secrets as pysecrets
+from pathlib import Path
 from typing import cast
 
 import kopf
@@ -25,6 +26,16 @@ import keycloak
 
 PROXY_IMAGE = "quay.io/oauth2-proxy/oauth2-proxy:v7.8.2"
 PROXY_PORT = 4180
+
+# The identity shim: the proxy's loopback neighbor that turns the verified
+# session into the application's own credentials (see shim.py's header).
+# It ships as a ConfigMap into a stock python image because no registry
+# exists here - the operator still generates everything from the manifest,
+# and the wipe-and-rebuild test keeps meaning something. A real install
+# builds an image; the swap is one field.
+SHIM_IMAGE = "python:3.12-alpine"
+SHIM_PORT = 4181
+SHIM_SOURCE = Path(__file__).resolve().parent / "shim.py"
 
 FIELD_MANAGER = "platform-operator"
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
@@ -162,6 +173,45 @@ def _ensure_ca_copy(app_ns: str) -> bool:
     return True
 
 
+def _ensure_shim_code(name: str, app_ns: str):
+    """shim.py, shipped as a ConfigMap. The file in this repo is the single
+    source; every reconcile re-applies it, so editing shim.py and restarting
+    the operator rolls the fix out - no build step to forget."""
+    body = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": f"gateway-{name}-shim",
+            "namespace": app_ns,
+            "labels": _labels(name),
+        },
+        "data": {"shim.py": SHIM_SOURCE.read_text()},
+    }
+    _apply(kubernetes.client.CoreV1Api(), "patch_namespaced_config_map",
+           app_ns, f"gateway-{name}-shim", body)
+
+
+def _shim_container(upstream: str) -> dict:
+    return {
+        "name": "shim",
+        "image": SHIM_IMAGE,
+        "command": ["python", "/shim/shim.py"],
+        # The shim binds 127.0.0.1 inside its own code; the upstream is the
+        # application service the proxy used to point at directly.
+        "env": [{"name": "SHIM_UPSTREAM", "value": upstream}],
+        "resources": {
+            "requests": {"cpu": "10m", "memory": "32Mi"},
+            "limits": {"memory": "128Mi"},
+        },
+        "securityContext": {"runAsNonRoot": True, "runAsUser": 65534},
+        "volumeMounts": [
+            {"name": "shim-code", "mountPath": "/shim", "readOnly": True},
+            {"name": "warehouse-users", "mountPath": "/etc/warehouse-users",
+             "readOnly": True},
+        ],
+    }
+
+
 def _deployment(name: str, app_ns: str, host: str, upstream: str, with_ca: bool) -> dict:
     args = [
         "--provider=keycloak-oidc",
@@ -172,7 +222,9 @@ def _deployment(name: str, app_ns: str, host: str, upstream: str, with_ca: bool)
         # Any authenticated realm user may pass. Role-gating is reconciler
         # mode `gate` work, not the door's.
         "--email-domain=*",
-        f"--upstream={upstream}",
+        # Approved traffic goes to the shim on loopback, which attaches the
+        # person's own warehouse credentials and forwards to the application.
+        f"--upstream=http://127.0.0.1:{SHIM_PORT}",
         f"--http-address=0.0.0.0:{PROXY_PORT}",
         "--reverse-proxy=true",
         "--cookie-secure=true",
@@ -199,12 +251,19 @@ def _deployment(name: str, app_ns: str, host: str, upstream: str, with_ca: bool)
             "limits": {"memory": "128Mi"},
         },
     }
-    volumes = []
+    volumes = [
+        {"name": "shim-code", "configMap": {"name": f"gateway-{name}-shim"}},
+        # The push reconciler's ledger. Optional: the gateway may come up
+        # before the first converge (or the application may have no push
+        # reconciler at all) - the shim passes through until it exists.
+        {"name": "warehouse-users",
+         "secret": {"secretName": f"{name}-platform-users", "optional": True}},
+    ]
     if with_ca:
         container["volumeMounts"] = [
             {"name": "datum-ca", "mountPath": "/etc/datum-ca", "readOnly": True}
         ]
-        volumes = [{"name": "datum-ca", "configMap": {"name": CA_CONFIGMAP}}]
+        volumes.append({"name": "datum-ca", "configMap": {"name": CA_CONFIGMAP}})
 
     return {
         "apiVersion": "apps/v1",
@@ -220,7 +279,7 @@ def _deployment(name: str, app_ns: str, host: str, upstream: str, with_ca: bool)
                 "metadata": {"labels": _labels(name)},
                 "spec": {
                     "hostAliases": [{"ip": _ingress_ip(), "hostnames": ["iam.datum.local"]}],
-                    "containers": [container],
+                    "containers": [container, _shim_container(upstream)],
                     "volumes": volumes,
                 },
             },
@@ -273,6 +332,7 @@ def reconcile(name: str, app_ns: str, host: str, logger):
         f"gateway-{name}", f"https://{host}/oauth2/callback"
     )
     _ensure_secret(name, app_ns, client_secret)
+    _ensure_shim_code(name, app_ns)
     with_ca = _ensure_ca_copy(app_ns)
     upstream = _upstream(name, app_ns)
 

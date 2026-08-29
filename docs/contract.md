@@ -164,14 +164,23 @@ Two deliberate boundaries, each its own future milestone:
   so it always agrees with tokens), because the permission graph does not
   exist yet. When it does, it replaces that one function and nothing
   downstream moves.
-- **A second password exists, typed once per session.** The gateway proves
-  who you are; the warehouse still checks its own generated credential. The
-  fix is the gateway↔warehouse identity handshake — a localhost-only shim
-  beside the proxy that turns the session identity into the user's own
-  warehouse credentials — designed, not yet built. Note also that the
-  external HTTP door is session-only: per-user passwords work inside Play
-  and for in-cluster clients; an external native client needs the TCP
-  route, which is open work.
+- **The second password is machinery now, not experience** (2026-08-30,
+  the identity shim — `operator/shim.py`). A loopback-only sidecar in the
+  gateway pod turns the session identity into the person's own warehouse
+  credentials, read from the reconciler's ledger Secret: Play's user and
+  password boxes stay empty, queries run as you, and typed or forged
+  credentials are stripped at the door — the session decides who you are.
+  Believing the identity header is safe only because of where the shim
+  listens: 127.0.0.1, reachable solely from the proxy sharing its pod.
+  It ships as a ConfigMap into a pinned stock python image (no registry
+  exists here; a real install builds an image — the swap is one field).
+  Two facts a fresh install should expect: the identity arrives in
+  X-Forwarded-Preferred-Username (X-Forwarded-User carries Keycloak's
+  opaque sub UUID — learned live when the first browser test 403'd on
+  one), and a from-scratch install settles for about a minute — warehouse
+  queries may fail until the first grant converge and the kubelet's
+  Secret projection land, then heal on their own. External native TCP
+  clients remain open work: the HTTP door is session-only.
 
 `gate` and `delegate` remain unimplemented (`gate` arrives with Dagster).
 
@@ -322,6 +331,16 @@ can read.
   ACCESS MANAGEMENT and SYSTEM, which are platform machinery. Verified live:
   per-user auth, enforced grants, named audit, and a Keycloak role removal
   propagating to a warehouse REVOKE within one tick.
+- **2026-08-30** — the identity shim closed the gateway↔warehouse handshake:
+  one platform login, and queries run as you with no second credential ever
+  typed. The gateway pod gained a loopback-only sidecar (shipped as a
+  ConfigMap from `operator/shim.py`) that maps the verified session to the
+  ledger's per-user warehouse credentials, strips anything auth-shaped a
+  client sent, and refuses unknown people by name. Verified: hostile
+  requests (forged headers, credential params, path-traversal identities)
+  all neutralized, full wipe-and-rebuild from the manifest alone, and a
+  cold incognito browser reaching `currentUser() = dev-analyst` off a
+  single Keycloak login.
 
 ## Not yet covered
 
