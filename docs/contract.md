@@ -118,9 +118,13 @@ The menu: what exists inside the application that a permission can be about.
 An application with no permission system of its own, such as Dagster, simply
 omits this field. There is nothing to list.
 
-Consumed by the permission graph, which uses it to render meaningful choices —
-"read on the sales database" rather than an on/off switch for the whole
-application. Not by this operator.
+**Consumed — by this operator's push reconciler** (2026-08-29): `actions`
+decides which `datum_*` warehouse roles exist at all, and each declared action
+translates to the application's own privilege dialect
+(`operator/reconciler.py`, `SQL_BY_ACTION`). An application declaring only
+`actions: [read]` gets no write role no matter who holds `platform:engineer`.
+The permission graph remains a future consumer for rendering choices —
+"read on the sales database" rather than an on/off switch.
 
 ### `reconciler.mode`
 
@@ -142,11 +146,39 @@ upstream is open work.
 The optional `reconciler.driver` names the piece of code that speaks the
 application's grant dialect, once such code exists.
 
+**`push` is implemented — by this operator** (`operator/reconciler.py`,
+2026-08-29). On a sixty-second timer, for every manifest declaring it, the
+operator reads who exists and what they may do, then makes the warehouse
+match: `datum_*` roles from the entitlements, one user per entitled person
+with a generated password (kept in the `<app>-platform-users` Secret — the
+ownership ledger: a warehouse user not in it is somebody else's and never
+touched), grants converged compare-then-fix so a quiet tick writes nothing.
+Verified live: removing `platform:admin` in Keycloak demoted the warehouse
+user to `datum_write` within a tick, `currentUser()` answers with the real
+person, and `system.query_log` audits by name.
+
+Two deliberate boundaries, each its own future milestone:
+
+- **The decision source is a stand-in.** Who-may-do-what is read from
+  Keycloak's realm roles (`keycloak.list_platform_users`, composite-expanded
+  so it always agrees with tokens), because the permission graph does not
+  exist yet. When it does, it replaces that one function and nothing
+  downstream moves.
+- **A second password exists, typed once per session.** The gateway proves
+  who you are; the warehouse still checks its own generated credential. The
+  fix is the gateway↔warehouse identity handshake — a localhost-only shim
+  beside the proxy that turns the session identity into the user's own
+  warehouse credentials — designed, not yet built. Note also that the
+  external HTTP door is session-only: per-user passwords work inside Play
+  and for in-cluster clients; an external native client needs the TCP
+  route, which is open work.
+
+`gate` and `delegate` remain unimplemented (`gate` arrives with Dagster).
+
 `entitlements` and `reconciler` were one field (`entitlements.mode`) until
 2026-08-24. They were split to match the datum-standards contract: what is
 grantable and how a grant is materialised have different consumers, and an
-application needs to state both. Consumed by the permission graph and its
-enforcement machinery. Not by this operator.
+application needs to state both.
 
 ### `surface`
 
@@ -193,8 +225,8 @@ Each should be tightened the moment it is settled. Current best understanding:
 |---|---|---|
 | `source` | prototype extension, pending polaris | **this operator** → k3s helm-controller |
 | `identity` | via polaris | Keycloak / SSO; `driver: gateway` → **this operator** |
-| `entitlements` | via polaris | the permission graph |
-| `reconciler` | via polaris | the permission graph's enforcement machinery |
+| `entitlements` | via polaris | **this operator's push reconciler**; later the permission graph |
+| `reconciler` | via polaris | `mode: push` → **this operator**; `gate`/`delegate` undecided |
 | `surface` | via polaris | the ingress layer; my-apps tiles (`launchUrl`) |
 | `observability` | via polaris | log collection and the audit store |
 | `dependencies`, `machineIdentity` | via polaris | undecided |
@@ -282,6 +314,14 @@ can read.
   block), because a chart ingress on the gateway's host is an unauthenticated
   bypass. Verified end to end: SSO in both directions, single route, full
   rebuild from a cold cluster.
+- **2026-08-29** — `reconciler.mode: push` and `entitlements` became
+  implemented behavior: a timer converges warehouse roles, users and grants
+  from Keycloak's realm roles (the permission graph's stand-in) and the
+  manifest's declared actions, reporting a summary in `status.grants`.
+  Admin deliberately maps to the data plane, never `ALL` — `ALL` carries
+  ACCESS MANAGEMENT and SYSTEM, which are platform machinery. Verified live:
+  per-user auth, enforced grants, named audit, and a Keycloak role removal
+  propagating to a warehouse REVOKE within one tick.
 
 ## Not yet covered
 

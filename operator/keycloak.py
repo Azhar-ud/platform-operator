@@ -153,6 +153,34 @@ def _client_representation(client_id: str, redirect_uri: str) -> dict:
     }
 
 
+def list_platform_users() -> dict[str, list[str]]:
+    """Every realm user and their effective platform:* roles.
+
+    This is the push reconciler's DECISION SOURCE, and a stand-in on
+    purpose: the permission graph that will someday decide who may do what
+    does not exist yet, while realm roles do - they are ADR-backed, my-apps
+    already expands them, and they are exactly what the future graph will
+    refine. When the graph arrives, it replaces this one function and
+    nothing downstream moves.
+
+    The composite endpoint is the important choice: dev-analyst is ASSIGNED
+    only platform:analyst, but the realm's roles are composites, so the
+    role expands to viewer too - the same expansion Keycloak performs into
+    tokens. Reading direct assignments would disagree with what every token
+    says.
+    """
+    token = _admin_token()
+    users = {}
+    for user in _admin_get("/users", token, max=1000):
+        roles = _admin_get(f"/users/{user['id']}/role-mappings/realm/composite", token)
+        platform_roles = sorted(
+            r["name"] for r in roles if r["name"].startswith("platform:")
+        )
+        if platform_roles:
+            users[user["username"]] = platform_roles
+    return users
+
+
 def ensure_client(client_id: str, redirect_uri: str) -> str:
     """Get-or-create the client; return its secret. Safe to call forever.
 
@@ -195,6 +223,9 @@ if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "ensure":
         value = ensure_client(sys.argv[2], sys.argv[3])
         print(f"client {sys.argv[2]} ensured; secret ends ...{value[-4:]}")
+    elif len(sys.argv) == 2 and sys.argv[1] == "users":
+        for username, roles in sorted(list_platform_users().items()):
+            print(f"{username}: {', '.join(roles)}")
     else:
         for client_id in list_clients():
             print(client_id)

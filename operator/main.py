@@ -41,6 +41,8 @@ import kubernetes
 from kubernetes.client.exceptions import ApiException
 
 import gateway
+import keycloak
+import reconciler
 
 GROUP = "platform.datumlabs.io"
 VERSION = "v1alpha1"
@@ -220,6 +222,36 @@ def observed_phase(name: str, namespace: str, app_ns: str) -> str:
         if (observed or 0) < wanted:
             return "Deploying"
     return "Ready"
+
+
+@kopf.timer(GROUP, VERSION, PLURAL, interval=60, initial_delay=45)
+def push_grants(spec, name, status, patch, logger, **_):
+    """The third translation: reconciler.mode push means grants converge.
+
+    On a clock, like phase observation, and for the same reason: a new
+    platform user, a role change in Keycloak, a hand-deleted warehouse user
+    - none of those are Kubernetes events the operator could watch. Every
+    tick re-reads the decision source (Keycloak) and the contract
+    (entitlements), and makes the warehouse match. A quiet tick writes
+    nothing anywhere - the converge compares before it fixes.
+
+    The service the SQL lands on is the release the operator itself
+    installed, so its name is the manifest's name - the same convention the
+    gateway discovers its upstream by.
+    """
+    if (spec.get("reconciler") or {}).get("mode") != "push":
+        return
+
+    summary = reconciler.converge(
+        app_ns=f"app-{name}",
+        service=name,
+        entitlements=spec.get("entitlements") or {},
+        platform_users=keycloak.list_platform_users(),
+        logger=logger,
+    )
+    if status.get("grants") != summary:
+        patch.status["grants"] = summary
+        logger.info("grants for %s: %s", name, summary)
 
 
 @kopf.on.delete(GROUP, VERSION, PLURAL)
