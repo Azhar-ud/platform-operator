@@ -20,10 +20,9 @@ spec:
         repository: bitnamilegacy/clickhouse
       persistence:
         size: 2Gi
-      ingress:
-        enabled: true
-        ingressClassName: haproxy
-        hostname: clickhouse.datum.local
+      # No ingress from the chart: surface.host is the operator's to route,
+      # and it routes to the login gateway. A chart ingress on the same host
+      # would be an unauthenticated door around it.
   identity:
     # gateway, not ldap-bridge: humans come through the auth proxy on the HTTP
     # interface, native clients use service accounts. Decided on polaris PR #7.

@@ -40,6 +40,8 @@ import kopf
 import kubernetes
 from kubernetes.client.exceptions import ApiException
 
+import gateway
+
 GROUP = "platform.datumlabs.io"
 VERSION = "v1alpha1"
 PLURAL = "applicationmanifests"
@@ -151,6 +153,15 @@ def reconcile(spec, name, namespace, patch, logger, **_):
         name, source["chart"], source["version"], app_ns,
     )
     patch.status["phase"] = "Deploying"
+
+    # The second translation: identity.driver gateway means this application
+    # cannot authenticate platform users itself, so the operator puts the
+    # login door in front of it. Same read-never-assume rule as source.
+    identity = spec.get("identity") or {}
+    host = (spec.get("surface") or {}).get("host")
+    if identity.get("driver") == "gateway" and host:
+        gateway.reconcile(name, app_ns, host, logger)
+        patch.status["gateway"] = f"https://{host}"
 
 
 @kopf.timer(GROUP, VERSION, PLURAL, interval=30, initial_delay=30)

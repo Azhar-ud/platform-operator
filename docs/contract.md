@@ -68,10 +68,12 @@ polaris contract nor in DPS P1 — taking it there is open work, alongside the
 extensions already proposed in
 [datum-standards#35](https://github.com/datumlabsio/datum-standards/issues/35).
 
-One known wrinkle, left deliberately: the ingress hostname currently appears
-twice — as `surface.host` (the contract's routing answer) and inside
-`source.values` (the chart's ingress setting). The operator should eventually
-derive the second from the first; it does not yet.
+A wrinkle this section used to record — the hostname appearing both in
+`surface.host` and inside `source.values` as the chart's ingress — is closed
+(2026-08-29): charts create no ingress, and the operator routes `surface.host`
+itself, to the login gateway. A chart ingress on the same host would be an
+unauthenticated door around it, which is exactly what the gateway rebuild
+test caught.
 
 ### `identity`
 
@@ -93,7 +95,17 @@ reach it through the auth proxy on its HTTP interface, native clients use
 service accounts, and the reconciler needs neither — it writes grants with its
 own admin account.
 
-Consumed by the identity work — Keycloak, SSO, the login itself. Not by this operator.
+**`gateway` is implemented — by this operator** (`operator/gateway.py`,
+2026-08-29). Declaring it deploys an oauth2-proxy in front of the
+application's HTTP surface: the operator ensures a confidential OIDC client in
+Keycloak via the admin API (idempotently — the realm imports once, so clients
+that exist because manifests exist are reconciled, not imported), generates
+the proxy's secrets, discovers the upstream by convention (the Service labeled
+as the application's instance, port named `http`), and routes `surface.host`
+to the proxy. One my-apps login opens every gateway application; verified both
+directions. The proxy stamps `X-Forwarded-User` upstream — nothing consumes it
+until the push reconciler does. `native-oidc` needs nothing deployed;
+`ldap-bridge` stays unimplemented.
 
 ### `entitlements`
 
@@ -147,10 +159,10 @@ answer, the hostname the platform serves the application on — proposed
 upstream with the others in datum-standards#35.
 
 The development cluster runs the team ingress layer (HAProxy, `*.datum.local`
-TLS — see [`cluster.md`](cluster.md)), so `host` is consumed for real: it is
-how `https://clickhouse.datum.local/ping` answers. Today the Ingress rule
-itself comes from the chart via `source.values` — see the wrinkle noted under
-`source`.
+TLS — see [`cluster.md`](cluster.md)), so `host` is consumed for real — by
+this operator, which writes the Ingress itself. For a `gateway` application
+the route lands on the login proxy, never directly on the application: one
+hostname, one writer, one authenticated door.
 
 ### The three unspecified fields
 
@@ -180,7 +192,7 @@ Each should be tightened the moment it is settled. Current best understanding:
 | Field | Owned here | Consumed by |
 |---|---|---|
 | `source` | prototype extension, pending polaris | **this operator** → k3s helm-controller |
-| `identity` | via polaris | Keycloak / SSO |
+| `identity` | via polaris | Keycloak / SSO; `driver: gateway` → **this operator** |
 | `entitlements` | via polaris | the permission graph |
 | `reconciler` | via polaris | the permission graph's enforcement machinery |
 | `surface` | via polaris | the ingress layer; my-apps tiles (`launchUrl`) |
@@ -262,6 +274,14 @@ can read.
   Forced by v4: the operator installs software by delegating to Helm, and a
   chart cannot be installed without knowing which chart. Prototype extension —
   not yet in polaris or DPS; taking it there is open work.
+- **2026-08-29** — no schema change, but two meanings landed. `identity.driver:
+  gateway` became implemented behavior: the operator deploys the login proxy,
+  ensures the Keycloak client, and reports the door in `status.gateway`.
+  `surface.host` became the operator's alone to route: charts stopped writing
+  ingresses (the clickhouse manifest's `source.values` dropped its ingress
+  block), because a chart ingress on the gateway's host is an unauthenticated
+  bypass. Verified end to end: SSO in both directions, single route, full
+  rebuild from a cold cluster.
 
 ## Not yet covered
 
