@@ -164,6 +164,19 @@ Two deliberate boundaries, each its own future milestone:
   so it always agrees with tokens), because the permission graph does not
   exist yet. When it does, it replaces that one function and nothing
   downstream moves.
+- **Identity is keyed by username, which is unique now but not forever.**
+  Keycloak enforces one username per realm, so the ledger and the shim's
+  lookup can never be ambiguous at any instant — but a username can be
+  *reused*: delete `dev-analyst` (Alice), onboard a new `dev-analyst` (Bob)
+  a year later, and while no access leaks (the converge dropped Alice's user
+  and Bob gets a fresh one), the warehouse audit trail now shows one name
+  for two humans. OIDC's answer is the `sub` claim — permanent, never
+  reused, unreadable — and the robust fix is recording it: each ledger
+  entry carries the sub it belonged to, so a familiar username arriving
+  with an unfamiliar sub is a new person, never a silent heir. Deferred
+  deliberately: usernames stay legible in query_log, the realm keeps
+  username-editing off (its default), and the reuse window is theoretical
+  at two seed users. Written down so a reviewer finds it here first.
 - **The second password is machinery now, not experience** (2026-08-30,
   the identity shim — `operator/shim.py`). A loopback-only sidecar in the
   gateway pod turns the session identity into the person's own warehouse

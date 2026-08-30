@@ -1,0 +1,161 @@
+<mxfile host="65bd71144e">
+    <diagram id="platform-flow" name="From manifest to query">
+        <mxGraphModel dx="3225" dy="863" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="920" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="ztitle1" value="① WHAT THE OPERATOR BUILDS — once, from the manifest" style="text;html=1;fontSize=15;fontStyle=1;align=left;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="20" width="700" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="appman" value="ApplicationManifest&#xa;&quot;clickhouse&quot;&#xa;&#xa;source:  chart + repo + version&#xa;identity:  driver: gateway&#xa;reconciler:  mode: push&#xa;surface:  host: clickhouse.datum.local" style="rounded=1;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=12;align=left;spacingLeft=14;fontStyle=1;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="120" width="260" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="operator" value="platform&#xa;operator" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="160" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ew" style="html=1;strokeColor=#333333;strokeWidth=2;endArrow=block;" edge="1" parent="1" source="appman" target="operator">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ewl" value="watches" style="edgeLabel;html=1;fontSize=11;" connectable="0" vertex="1" parent="ew">
+                    <mxGeometry x="-0.1" y="-14" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="o1" value="HelmChart object → helm-controller installs ClickHouse" style="rounded=1;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;align=left;spacingLeft=14;" vertex="1" parent="1">
+                    <mxGeometry x="700" y="60" width="420" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="o2" value="OIDC client &quot;gateway-clickhouse&quot; ensured in Keycloak" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=left;spacingLeft=14;" vertex="1" parent="1">
+                    <mxGeometry x="700" y="122" width="420" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="o3" value="gateway pod deployed: oauth2-proxy + shim" style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=14;" vertex="1" parent="1">
+                    <mxGeometry x="700" y="184" width="420" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="o4" value="every 60 s: warehouse users + keys → ledger Secret, GRANTs → SQL" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=left;spacingLeft=14;" vertex="1" parent="1">
+                    <mxGeometry x="700" y="246" width="420" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="o5" value="Ingress: clickhouse.datum.local → the gateway (the ONE route in)" style="rounded=1;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;align=left;spacingLeft=14;" vertex="1" parent="1">
+                    <mxGeometry x="700" y="308" width="420" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="eo1" style="html=1;dashed=1;strokeColor=#666666;endArrow=open;exitX=1;exitY=0.2;" edge="1" parent="1" source="operator" target="o1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="600" y="90"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eo1l" value="source" style="edgeLabel;html=1;fontSize=10;fontColor=#666666;" connectable="0" vertex="1" parent="eo1">
+                    <mxGeometry x="0.35" y="-9" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eo2" style="html=1;dashed=1;strokeColor=#666666;endArrow=open;exitX=1;exitY=0.35;" edge="1" parent="1" source="operator" target="o2">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="630" y="150"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eo2l" value="identity" style="edgeLabel;html=1;fontSize=10;fontColor=#666666;" connectable="0" vertex="1" parent="eo2">
+                    <mxGeometry x="0.35" y="-9" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eo3" style="html=1;dashed=1;strokeColor=#666666;endArrow=open;exitX=1;exitY=0.55;" edge="1" parent="1" source="operator" target="o3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eo3l" value="identity" style="edgeLabel;html=1;fontSize=10;fontColor=#666666;" connectable="0" vertex="1" parent="eo3">
+                    <mxGeometry x="0.35" y="-9" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eo4" style="html=1;dashed=1;strokeColor=#666666;endArrow=open;exitX=1;exitY=0.75;" edge="1" parent="1" source="operator" target="o4">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="630" y="260"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eo4l" value="reconciler" style="edgeLabel;html=1;fontSize=10;fontColor=#666666;" connectable="0" vertex="1" parent="eo4">
+                    <mxGeometry x="0.35" y="-9" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eo5" style="html=1;dashed=1;strokeColor=#666666;endArrow=open;exitX=1;exitY=0.95;" edge="1" parent="1" source="operator" target="o5">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="630" y="330"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eo5l" value="surface" style="edgeLabel;html=1;fontSize=10;fontColor=#666666;" connectable="0" vertex="1" parent="eo5">
+                    <mxGeometry x="0.35" y="-9" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="div" style="endArrow=none;html=1;strokeColor=#bbbbbb;strokeWidth=2;dashed=1;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="40" y="400" as="sourcePoint"/>
+                        <mxPoint x="1360" y="400" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="ztitle2" value="② WHAT HAPPENS WHEN YOU PRESS RUN — every request" style="text;html=1;fontSize=15;fontStyle=1;align=left;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="420" width="700" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="kc" value="Keycloak&#xa;users · roles · sessions" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="470" width="190" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="browser" value="browser&#xa;(Play, boxes EMPTY)" style="rounded=1;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="620" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="haproxy" value="HAProxy&#xa;TLS" style="rounded=1;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="620" width="130" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="pod" value="gateway pod" style="rounded=1;html=1;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontSize=12;fontStyle=1;align=left;spacingLeft=12;spacingTop=6;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="580" width="480" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="proxy" value="oauth2-proxy&#xa;who are you?" style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="510" y="620" width="170" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="shim" value="shim (127.0.0.1)&#xa;name → key" style="rounded=1;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="760" y="620" width="170" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ch" value="ClickHouse&#xa;runs it AS dev-analyst" style="rounded=1;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="1040" y="620" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ledger" value="ledger Secret&#xa;one file per person, mounted" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="750" y="790" width="190" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="q1" style="html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=block;" parent="1" source="browser" target="haproxy" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q1l" value="1" style="edgeLabel;html=1;fontSize=13;fontStyle=1;fontColor=#3355aa;" parent="q1" vertex="1" connectable="0">
+                    <mxGeometry y="-12" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q2" style="html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=block;" parent="1" source="haproxy" target="proxy" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q2l" value="2" style="edgeLabel;html=1;fontSize=13;fontStyle=1;fontColor=#3355aa;" parent="q2" vertex="1" connectable="0">
+                    <mxGeometry y="-12" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q3" style="html=1;strokeColor=#6c8ebf;strokeWidth=2;endArrow=block;" parent="1" source="proxy" target="shim" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q3l" value="3" style="edgeLabel;html=1;fontSize=13;fontStyle=1;fontColor=#3355aa;" parent="q3" vertex="1" connectable="0">
+                    <mxGeometry y="-12" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q4" style="html=1;strokeColor=#d79b00;strokeWidth=2;endArrow=block;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" parent="1" source="ledger" target="shim" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q4l" value="4" style="edgeLabel;html=1;fontSize=13;fontStyle=1;fontColor=#a06800;" parent="q4" vertex="1" connectable="0">
+                    <mxGeometry x="0.2" y="8" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q5" style="html=1;strokeColor=#d79b00;strokeWidth=2;endArrow=block;" parent="1" source="shim" target="ch" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="q5l" value="5" style="edgeLabel;html=1;fontSize=13;fontStyle=1;fontColor=#a06800;" parent="q5" vertex="1" connectable="0">
+                    <mxGeometry y="-12" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qkc" style="html=1;dashed=1;strokeColor=#d6b656;strokeWidth=2;endArrow=block;startArrow=block;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" parent="1" source="proxy" target="kc" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qkcl" value="0" style="edgeLabel;html=1;fontSize=13;fontStyle=1;fontColor=#a06800;" parent="qkc" vertex="1" connectable="0">
+                    <mxGeometry x="0.2" y="8" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="steps" value="0 · once per session: no session → redirect, you log in AT Keycloak, a signed token (sub, preferred_username, roles) comes back; session alive → silent pass&#xa;1 · browser sends the request — only the session cookie travels, no passwords&#xa;2 · HAProxy terminates TLS, the operator’s Ingress routes to the gateway&#xa;3 · proxy checks the session, forwards over loopback stamped X-Forwarded-Preferred-Username: dev-analyst&#xa;4 · shim reads that person’s key: open(&quot;/etc/warehouse-users/dev-analyst&quot;) — and strips everything typed or forged (user=, password=, X-ClickHouse-*)&#xa;5 · shim forwards with X-ClickHouse-User + key — ClickHouse sees a normal login, grants apply, query_log names you" style="text;html=1;fontSize=12;align=left;spacingLeft=6;verticalAlign=top;" vertex="1" parent="1">
+                    <mxGeometry x="-110" y="745" width="640" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="safety" value="the shim believes the name-stamp ONLY because it binds 127.0.0.1 —&#xa;nothing but the proxy in its own pod can reach it" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;spacingLeft=10;" parent="1" vertex="1">
+                    <mxGeometry x="1000" y="790" width="360" height="60" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
