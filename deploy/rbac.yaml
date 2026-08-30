@@ -1,0 +1,118 @@
+# What the operator's hands may touch, stated once and enforced by the API
+# server. On a laptop the operator borrowed the developer's admin kubeconfig;
+# a pod gets exactly this list and nothing else. Every rule cites the code
+# that needs it - a rule nothing needs is a hole, not a convenience.
+#
+# ClusterRole, not Role, for one honest reason: app namespaces (app-<name>)
+# are created at reconcile time, and RBAC cannot name namespaces that do not
+# exist yet. The rules are still the narrowest verbs each function uses.
+# (polaris has no RBAC objects yet - this file is the precedent that will
+# move there, as gitops/charts/platform-operator/ per ADR-0005.)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-operator
+  namespace: datum-platform
+  labels:
+    app.kubernetes.io/name: platform-operator
+    app.kubernetes.io/part-of: datum-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-operator
+  labels:
+    app.kubernetes.io/name: platform-operator
+    app.kubernetes.io/part-of: datum-platform
+rules:
+  # The contract itself: watch manifests, keep finalizers, report status.
+  - apiGroups: [platform.datumlabs.io]
+    resources: [applicationmanifests]
+    verbs: [get, list, watch, patch]
+  - apiGroups: [platform.datumlabs.io]
+    resources: [applicationmanifests/status]
+    verbs: [patch]
+
+  # kopf narrates what it does as Events on the manifest.
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create]
+
+  # kopf's own furniture: it watches the definition of the resource it
+  # operates, to notice the CRD changing or vanishing. Read-only.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+
+  # apply_namespace / cleanup: the one cluster-scoped power, and the reason
+  # delete appears anywhere in this file.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, create, patch, delete]
+
+  # source.helm -> HelmChart (helm-controller does the rest; GC deletes).
+  - apiGroups: [helm.cattle.io]
+    resources: [helmcharts]
+    verbs: [get, create, patch]
+
+  # source.clickhouse -> the official operator's nouns (warehouse.py).
+  - apiGroups: [clickhouse.com]
+    resources: [clickhouseclusters, keeperclusters]
+    verbs: [get, create, patch]
+
+  # Secrets the operator mints and reads: <app>-admin, the grants ledger,
+  # the gateway cookie/client pair - plus reading datum-identity-admin.
+  # ConfigMaps: the shim code and the CA copy (gateway.py).
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, create, patch]
+
+  # gateway._upstream discovers the app's Service by label; _ingress_ip
+  # reads the ingress controller's ClusterIP; and the gateway writes its own
+  # Service in front of oauth2-proxy (the first pod rollout caught that this
+  # list had only the reads - the API server refused the write, which is the
+  # list doing its job).
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, create, patch]
+
+  # reconciler.execute reaches the warehouse through the API server's
+  # service proxy: GET/POST /services/<svc>:http/proxy/.
+  - apiGroups: [""]
+    resources: [services/proxy]
+    verbs: [get, create]
+
+  # The gateway Deployment is written; Deployments AND StatefulSets are read
+  # by the observe timer (Bitnami taught us databases are StatefulSets).
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, create, patch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get, list]
+
+  # surface.host has one writer: the operator's Ingress to the gateway.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, create, patch]
+
+  # observe reads helm-controller's install job to notice a failed install.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-operator
+  labels:
+    app.kubernetes.io/name: platform-operator
+    app.kubernetes.io/part-of: datum-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: platform-operator
+subjects:
+  - kind: ServiceAccount
+    name: platform-operator
+    namespace: datum-platform

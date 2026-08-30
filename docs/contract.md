@@ -387,6 +387,18 @@ can read.
   → SSO door → `currentUser() = dev-analyst`. New platform-furniture
   dependency: the ClickHouse operator (and its cert-manager question),
   installed before any `source.clickhouse` manifest.
+- **2026-08-31** — no schema change; the operator itself moved in-cluster
+  (v9). It now runs as a Deployment in `datum-platform` under a
+  ServiceAccount whose ClusterRole (`deploy/rbac.yaml`) is the first written,
+  execution-tested statement of everything the reconciler may touch — two
+  gaps were found by the API server refusing, not by code review, which is
+  the list working. Identity is dual-mode: in-cluster ServiceAccount (how it
+  ships; the SQL proxy reads the projected token fresh per call, because
+  bound tokens rotate) with kubeconfig fallback (how it is developed — the
+  laptop `kopf run` loop is unchanged). Packaging follows polaris
+  conventions: digest-pinned image, non-root, hostAliases + trusted-CA mount
+  from the my-apps precedent. Verified: full wipe-and-rebuild with nothing
+  running outside the cluster.
 
 ## Not yet covered
 

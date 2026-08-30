@@ -1,0 +1,88 @@
+# The operator as a pod: how it ships (v9). The laptop `kopf run` remains how
+# it is developed - same code, main.py picks the identity at startup.
+# Exactly one replica: kopf runs --standalone, so "one operator per cluster"
+# is this file's promise, not an election's.
+#
+# Namespace and conventions are polaris's (my-apps deployment is the
+# precedent): datum-platform, hostAliases for the issuer, the trustedCA
+# mount, IfNotPresent for a k3d-imported local image, restricted security
+# context. In polaris this becomes gitops/charts/platform-operator/ with the
+# install-specific values (hostAliases, image tag) in gitops/values/.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-operator
+  namespace: datum-platform
+  labels:
+    app.kubernetes.io/name: platform-operator
+    app.kubernetes.io/part-of: datum-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-operator
+        app.kubernetes.io/part-of: datum-platform
+    spec:
+      serviceAccountName: platform-operator
+      # The pod has to reach the issuer at its real hostname, and
+      # *.datum.local exists only in a developer's hosts file. Point it at
+      # the ingress controller, which is what the browser reaches too. If the
+      # ingress controller was reinstalled, its address changed:
+      #   kubectl -n datum-platform get svc haproxy-ingress-kubernetes-ingress \
+      #     -o jsonpath='{.spec.clusterIP}'
+      hostAliases:
+        - ip: 10.43.31.20
+          hostnames:
+            - iam.datum.local
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: operator
+          image: datum/platform-operator:0.1.0-dev
+          # IfNotPresent is what makes a `k3d image import`-ed local image
+          # work - never Always, never :latest.
+          imagePullPolicy: IfNotPresent
+          env:
+            # keycloak.py trusts exactly this bundle when it speaks TLS to
+            # the issuer; without it the mkcert-signed certificate is
+            # untrusted and client provisioning fails before it starts.
+            - name: DATUM_CA
+              value: /etc/ssl/datum/ca.pem
+          ports:
+            - name: healthz
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: trusted-ca
+              mountPath: /etc/ssl/datum
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: trusted-ca
+          configMap:
+            name: datum-local-ca
+        - name: tmp
+          emptyDir: {}

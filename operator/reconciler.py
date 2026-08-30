@@ -16,6 +16,7 @@
 import base64
 import re
 import secrets as pysecrets
+from pathlib import Path
 from typing import cast
 
 import kubernetes
@@ -57,25 +58,44 @@ def _proxy_url(app_ns: str, service: str) -> str:
     return f"{cfg.host}/api/v1/namespaces/{app_ns}/services/{service}:http/proxy/"
 
 
+# The pod's ServiceAccount token, where kubelet projects it. Read fresh on
+# every use, like every other credential the operator touches: bound tokens
+# rotate (~1h) and kubelet rewrites this file - a copy taken at startup goes
+# stale in a way a laptop kubeconfig never taught us to expect.
+SA_TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+
+
+def _api_auth(cfg) -> tuple[dict, dict]:
+    """(headers, requests-kwargs) for whichever identity the loaded config
+    carries: a client certificate (laptop kubeconfig) or the pod's
+    ServiceAccount bearer token (in-cluster)."""
+    if cfg.cert_file and cfg.key_file:
+        return {}, {"cert": (cfg.cert_file, cfg.key_file)}
+    if SA_TOKEN.is_file():
+        return {"Authorization": f"Bearer {SA_TOKEN.read_text().strip()}"}, {}
+    raise RuntimeError("no API credential: neither a client cert nor a service account token")
+
+
 def execute(app_ns: str, service: str, sql: str) -> str:
-    """One SQL statement against the warehouse, as the chart's admin user.
+    """One SQL statement against the warehouse, as the admin user.
 
     Credentials travel as ClickHouse's own headers, not in the URL - the API
     server logs request paths, and a password in a query string is a password
     in a log.
     """
     cfg = kubernetes.client.Configuration.get_default_copy()
-    assert cfg.cert_file and cfg.key_file, "kubeconfig must carry a client cert"
+    auth_headers, auth_kwargs = _api_auth(cfg)
     resp = requests.post(
         _proxy_url(app_ns, service),
         params={"query": sql},
         headers={
             "X-ClickHouse-User": "default",
             "X-ClickHouse-Key": _admin_password(app_ns),
+            **auth_headers,
         },
-        cert=(cfg.cert_file, cfg.key_file),
         verify=cfg.ssl_ca_cert,
         timeout=15,
+        **auth_kwargs,
     )
     if resp.status_code != 200:
         raise RuntimeError(f"clickhouse said {resp.status_code}: {resp.text[:300]}")

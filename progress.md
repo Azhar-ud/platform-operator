@@ -16,7 +16,12 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
   locally, out-of-band (`datum-identity-admin`, `datum-my-apps`, `datum-local-ca`).
   my-apps chart was installed with a `--set-json hostAliases` override (values file
   records another machine's ingress ClusterIP — re-derive on reinstall).
-- Run the operator: `.venv/bin/kopf run operator/main.py --verbose` (laptop, kubeconfig).
+- Run the operator: **in-cluster** — Deployment `platform-operator` in
+  `datum-platform` (image `datum/platform-operator:0.1.0-dev`, k3d-imported;
+  `deploy/` has RBAC + Deployment). Laptop dev loop still works:
+  `kubectl scale deploy/platform-operator -n datum-platform --replicas=0`
+  FIRST (two standalone operators double-handle), then
+  `.venv/bin/kopf run operator/main.py --verbose`; scale back to 1 when done.
 - Seed login: `dev-analyst` / seedPassword in `datum-identity-admin` secret.
   Keycloak admin: `admin` / password field, same secret.
 
@@ -74,6 +79,20 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
   lab, deletable. Cluster rebuild ORDER: ClickHouse operator before any
   `source.clickhouse` manifest. Verified live by Azhar.
 
+- **v9 (in-cluster, 2026-08-31)** — the operator is a pod. Dual-mode identity
+  (`load_incluster_config` first, kubeconfig fallback); `reconciler._api_auth`
+  sends client cert OR the SA token read fresh per call (bound tokens rotate).
+  `Dockerfile`: digest-pinned python:3.12-slim, uid 10001, polaris (dlt-pipeline)
+  conventions. `deploy/rbac.yaml`: least privilege, execution-tested — the API
+  server itself caught services create/patch (gateway writes its Service) and
+  CRD read (kopf watches its own noun's definition). `deploy/deployment.yaml`:
+  hostAliases iam.datum.local → ingress ClusterIP (hand-pasted, my-apps
+  convention — re-derive on reinstall), `DATUM_CA=/etc/ssl/datum/ca.pem` from
+  the `datum-local-ca` ConfigMap, restricted securityContext, IfNotPresent.
+  Verified: wipe-and-rebuild fully in-cluster, laptop idle. (A rename to
+  "jackdaw" was tested end-to-end and reverted same day — name stays;
+  naming is a polaris team-conversation item.)
+
 ## Design facts worth not re-deriving
 
 - Login SSO both directions; logout propagates in ≤5 min (token lifetime); sessions:
@@ -99,18 +118,17 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
 
 ## Uncommitted right now
 
-- nothing once v8 lands; v9 (in-cluster) begins on the clean boundary
+- nothing once v9 lands
 
 ## Next moves (agreed direction)
 
-1. **Polaris migration** (IN PROGRESS, agreed order): polaris PR #29 (source
-   union, OPEN — needs review; Usman message DRAFTED, NOT SENT) →
-   **v9 in-cluster** in this repo first (Dockerfile, `load_incluster_config`,
-   least-privilege RBAC, `reconciler.execute` auth rework — it asserts a
-   client-cert kubeconfig today; keep the laptop kopf dev-loop working) →
-   operator PR to polaris (placement + image build workflow = team questions:
-   `application/` vs `gitops/applications/` collision, who reviews Python,
-   ClickHouse-operator install as gitops dir not runbook step).
+1. **Polaris migration** (IN PROGRESS): v9 in-cluster is DONE. Remaining:
+   polaris PR #29 review (OPEN; Usman message DRAFTED, NOT SENT) → operator
+   PR to polaris (placement per ADR-0005 = `gitops/charts/platform-operator/`
+   + values in `gitops/values/`; add folder to CI `changed-paths` +
+   `container-platform-operator` job + `publish-*` in release.yml with unique
+   image-name; team questions: who reviews Python, ClickHouse-operator
+   install as gitops dir not runbook step, `application/` naming collision).
 2. **Dagster** (`manifests/dagster.yaml`) — second app, zero code changes expected;
    pre-known friction: Bitnami postgres subchart image, upstream port-name convention,
    hosts entry; exercises `gate` + shim passthrough. Independent — slots anywhere.
@@ -128,6 +146,10 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
   `helm install clickhouse-operator oci://ghcr.io/clickhouse/clickhouse-operator-helm
   --create-namespace -n clickhouse-operator-system --set certManager.enabled=false
   --set webhook.enabled=false --set metrics.secure=false`
+- Operator image: `docker build -t datum/platform-operator:0.1.0-dev .`
+  → `k3d image import datum/platform-operator:0.1.0-dev -c datum-dev`
+  → `kubectl apply -f deploy/` → `kubectl rollout restart deploy/platform-operator -n datum-platform`.
+  hostAliases IP in deploy/deployment.yaml must match the ingress ClusterIP.
 - Cluster: `./scripts/cluster-down.sh [--delete]` / `cluster-up.sh` → `ingress-up.sh`.
   After boot: proxy CrashLoops until Keycloak wakes — normal, self-heals.
 - 502 at the door = a hop is (re)starting (cold boot, pod roll); self-heals <1 min.

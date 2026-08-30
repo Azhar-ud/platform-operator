@@ -67,11 +67,17 @@ MANIFEST_LABEL = "platform.datumlabs.io/manifest"
 @kopf.on.startup()
 def configure(logger, **_):
     # kopf authenticates its own watch client; the kubernetes client we use to
-    # write objects needs configuring separately. In-cluster config arrives
-    # with the polaris move - until then this runs on a laptop against a
-    # kubeconfig.
-    kubernetes.config.load_kube_config()
-    logger.info("kubernetes client configured from kubeconfig")
+    # write objects needs configuring separately. Two homes, one loop: inside
+    # a pod the ServiceAccount is the identity (v9, how it ships); on a laptop
+    # the kubeconfig is (how it is developed). In-cluster is tried first
+    # because a pod may well have a stray KUBECONFIG, but a laptop never has
+    # a service-account mount.
+    try:
+        kubernetes.config.load_incluster_config()
+        logger.info("kubernetes client configured from the pod's service account")
+    except kubernetes.config.ConfigException:
+        kubernetes.config.load_kube_config()
+        logger.info("kubernetes client configured from kubeconfig")
 
 
 def apply_namespace(app_ns: str, manifest_name: str):
