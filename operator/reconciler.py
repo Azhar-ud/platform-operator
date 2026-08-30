@@ -25,14 +25,31 @@ from kubernetes.client.exceptions import ApiException
 FIELD_MANAGER = "platform-operator"
 
 
-def _admin_password(app_ns: str, release: str) -> str:
-    """The chart's generated admin password, read on every use like every
-    other credential the operator touches."""
-    secret = cast(
-        kubernetes.client.V1Secret,
-        kubernetes.client.CoreV1Api().read_namespaced_secret(release, app_ns),
-    )
-    return base64.b64decode((secret.data or {})["admin-password"]).decode()
+def _admin_password(app_ns: str) -> str:
+    """The warehouse admin password, read on every use like every other
+    credential the operator touches.
+
+    Two shapes, one per installer kind: the operator-minted Secret
+    (<name>-admin, key `password` - source.clickhouse, we made it before the
+    database was born) and the Bitnami chart's (<name>, key `admin-password`
+    - source.helm, the chart made it and we read it after). The app's name
+    is the namespace's, by the operator's own app-<name> convention.
+    """
+    name = app_ns.removeprefix("app-")
+    api = kubernetes.client.CoreV1Api()
+    for secret_name, key in ((f"{name}-admin", "password"), (name, "admin-password")):
+        try:
+            secret = cast(
+                kubernetes.client.V1Secret,
+                api.read_namespaced_secret(secret_name, app_ns),
+            )
+        except ApiException as e:
+            if e.status != 404:
+                raise
+            continue
+        if key in (secret.data or {}):
+            return base64.b64decode((secret.data or {})[key]).decode()
+    raise RuntimeError(f"no warehouse admin secret in {app_ns}")
 
 
 def _proxy_url(app_ns: str, service: str) -> str:
@@ -54,7 +71,7 @@ def execute(app_ns: str, service: str, sql: str) -> str:
         params={"query": sql},
         headers={
             "X-ClickHouse-User": "default",
-            "X-ClickHouse-Key": _admin_password(app_ns, service),
+            "X-ClickHouse-Key": _admin_password(app_ns),
         },
         cert=(cfg.cert_file, cfg.key_file),
         verify=cfg.ssl_ca_cert,
@@ -135,7 +152,15 @@ def _ident(name: str) -> str:
     return f'"{name}"'
 
 
-def _managed_passwords(app_ns: str, service: str) -> dict[str, str]:
+def _ledger_name(app_ns: str) -> str:
+    """<app>-platform-users, named by the app, not the Service the SQL rides
+    to - the Service's name belongs to whoever installed the database, and
+    it changed when the official operator arrived. The gateway mounts the
+    ledger by this name; the two must never drift again."""
+    return f"{app_ns.removeprefix('app-')}-platform-users"
+
+
+def _managed_passwords(app_ns: str) -> dict[str, str]:
     """The users this reconciler owns, with their passwords.
 
     The Secret is the ownership ledger: its keys ARE the set of users the
@@ -148,7 +173,7 @@ def _managed_passwords(app_ns: str, service: str) -> dict[str, str]:
         secret = cast(
             kubernetes.client.V1Secret,
             kubernetes.client.CoreV1Api().read_namespaced_secret(
-                f"{service}-platform-users", app_ns
+                _ledger_name(app_ns), app_ns
             ),
         )
         return {
@@ -161,15 +186,15 @@ def _managed_passwords(app_ns: str, service: str) -> dict[str, str]:
         return {}
 
 
-def _store_passwords(app_ns: str, service: str, passwords: dict[str, str]):
+def _store_passwords(app_ns: str, passwords: dict[str, str]):
     kubernetes.client.CoreV1Api().patch_namespaced_secret(
-        name=f"{service}-platform-users",
+        name=_ledger_name(app_ns),
         namespace=app_ns,
         body={
             "apiVersion": "v1",
             "kind": "Secret",
             "metadata": {
-                "name": f"{service}-platform-users",
+                "name": _ledger_name(app_ns),
                 "namespace": app_ns,
                 "labels": {"app.kubernetes.io/managed-by": FIELD_MANAGER},
             },
@@ -235,7 +260,7 @@ def converge(app_ns: str, service: str, entitlements: dict,
 
     # Users: the ledger decides ownership. New user: create with a generated
     # password. Known user: converge role membership only. Gone user: drop.
-    ledger = _managed_passwords(app_ns, service)
+    ledger = _managed_passwords(app_ns)
     for username, role in sorted(desired["users"].items()):
         if username not in ledger:
             ledger[username] = pysecrets.token_urlsafe(24)
@@ -255,7 +280,7 @@ def converge(app_ns: str, service: str, entitlements: dict,
         del ledger[gone]
         logger.info("user %s: dropped, no longer entitled", gone)
 
-    _store_passwords(app_ns, service, ledger)
+    _store_passwords(app_ns, ledger)
     return {"users": len(desired["users"]), "roles": len(desired["roles"])}
 
 
@@ -281,18 +306,23 @@ if __name__ == "__main__":
         import logging
 
         import keycloak
+        import warehouse
 
         logging.basicConfig(level=logging.INFO, format="%(message)s")
         kubernetes.config.load_kube_config()
+        svc = warehouse.service_name("clickhouse")
         entitlements = {"grantableObjects": ["database", "table", "view"],
                         "actions": ["read", "write", "admin"]}
-        result = converge("app-clickhouse", "clickhouse", entitlements,
+        result = converge("app-clickhouse", svc, entitlements,
                           keycloak.list_platform_users(), logging.getLogger("converge"))
         print("converged:", result)
         print("warehouse users now:",
-              execute("app-clickhouse", "clickhouse", "SHOW USERS").replace("\n", ", "))
+              execute("app-clickhouse", svc, "SHOW USERS").replace("\n", ", "))
     else:
+        import warehouse
+
         kubernetes.config.load_kube_config()
-        print("version:     ", execute("app-clickhouse", "clickhouse", "SELECT version()"))
-        print("connected as:", execute("app-clickhouse", "clickhouse", "SELECT currentUser()"))
-        print("users:       ", execute("app-clickhouse", "clickhouse", "SHOW USERS").replace("\n", ", "))
+        svc = warehouse.service_name("clickhouse")
+        print("version:     ", execute("app-clickhouse", svc, "SELECT version()"))
+        print("connected as:", execute("app-clickhouse", svc, "SELECT currentUser()"))
+        print("users:       ", execute("app-clickhouse", svc, "SHOW USERS").replace("\n", ", "))

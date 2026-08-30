@@ -1,4 +1,4 @@
-# Progress — platform-operator (through 2026-08-30)
+# Progress — platform-operator (through 2026-08-31)
 
 Session keypoints. Written before a context compaction; the full reasoning lives in
 `docs/contract.md`, the commit messages, and the visual explainer artifact:
@@ -60,6 +60,20 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
   login end to end, Play boxes empty**, verified in a cold incognito browser + full
   wipe-and-rebuild.
 
+- **v8 (official operator, 2026-08-31)** — CTO decision: ClickHouse
+  runs on the official ClickHouse operator (`clickhouse-operator-system`,
+  chart v0.0.7, installed by hand with certManager/webhook/secure-metrics off —
+  cert-manager is a real-install question). `source` is a union (`helm:` |
+  `clickhouse:`, CEL exactly-one); `operator/warehouse.py` renders admin Secret
+  (minted pre-birth) + KeeperCluster (image pinned = DB version; unpinned
+  keeper → `:latest`) + ClickHouseCluster (image is `{repository, tag}`).
+  Service: `<name>-clickhouse-headless`, port `http`. Three bugs caught by the
+  rebuild: image-as-object, ledger named by APP not service, gateway
+  `_upstream` must skip its own Service (self-loop, latent since v5).
+  polaris PR #29 (open): source union, helm branch only. `ch-lab` ns = scratch
+  lab, deletable. Cluster rebuild ORDER: ClickHouse operator before any
+  `source.clickhouse` manifest. Verified live by Azhar.
+
 ## Design facts worth not re-deriving
 
 - Login SSO both directions; logout propagates in ≤5 min (token lifetime); sessions:
@@ -85,27 +99,35 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
 
 ## Uncommitted right now
 
-- `docs/contract.md`: username-reuse boundary note (+ bitnamilegacy debt-note still TODO)
-- `docs/gateway-flow.drawio`: two-zone diagram (operator fan-out + request flow)
-- `progress.md` (this file)
+- nothing once v8 lands; v9 (in-cluster) begins on the clean boundary
 
 ## Next moves (agreed direction)
 
-1. **Dagster** (`manifests/dagster.yaml`) — second app, zero code changes expected;
+1. **Polaris migration** (IN PROGRESS, agreed order): polaris PR #29 (source
+   union, OPEN — needs review; Usman message DRAFTED, NOT SENT) →
+   **v9 in-cluster** in this repo first (Dockerfile, `load_incluster_config`,
+   least-privilege RBAC, `reconciler.execute` auth rework — it asserts a
+   client-cert kubeconfig today; keep the laptop kopf dev-loop working) →
+   operator PR to polaris (placement + image build workflow = team questions:
+   `application/` vs `gitops/applications/` collision, who reviews Python,
+   ClickHouse-operator install as gitops dir not runbook step).
+2. **Dagster** (`manifests/dagster.yaml`) — second app, zero code changes expected;
    pre-known friction: Bitnami postgres subchart image, upstream port-name convention,
-   hosts entry; exercises `gate` + shim passthrough. Doc's v5; chart research first.
-2. **Polaris migration path** (agreed order): polaris PR adding `source` to the contract
-   → team conversation (Usman message DRAFTED, NOT SENT — user said don't send) →
-   **v8 in-cluster** (Dockerfile, `load_incluster_config`, RBAC = least-privilege list)
-   → scaffold move (copier `application` archetype; naming collision `application/` vs
-   `gitops/applications/` to raise; authored warehouse chart rides along).
+   hosts entry; exercises `gate` + shim passthrough. Independent — slots anywhere.
 3. my-apps tile wiring (`surface.launchUrl` — my-apps roster is placeholder data),
-   back-channel logout, native-TCP + rotation policy (one conversation).
+   back-channel logout, native-TCP + rotation policy (one conversation),
+   observability milestone (Prometheus+Grafana as platform apps; the operator
+   reads the manifest's `observability` field and writes the scrape targets).
 
 ## Rebuild cheatsheet
 
 - App only: `kubectl delete appman clickhouse` ⇄ `kubectl apply -f manifests/clickhouse.yaml`
 - Platform: polaris runbook `docs/runbooks/my-apps-local.md` (secrets → CA → helm install
   identity, my-apps → CRD apply). New passwords each time.
+- ClickHouse operator (needed BEFORE any source.clickhouse manifest):
+  `helm install clickhouse-operator oci://ghcr.io/clickhouse/clickhouse-operator-helm
+  --create-namespace -n clickhouse-operator-system --set certManager.enabled=false
+  --set webhook.enabled=false --set metrics.secure=false`
 - Cluster: `./scripts/cluster-down.sh [--delete]` / `cluster-up.sh` → `ingress-up.sh`.
   After boot: proxy CrashLoops until Keycloak wakes — normal, self-heals.
+- 502 at the door = a hop is (re)starting (cold boot, pod roll); self-heals <1 min.

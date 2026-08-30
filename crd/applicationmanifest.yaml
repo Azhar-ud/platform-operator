@@ -117,29 +117,64 @@ spec:
                     healthCheck:
                       type: string
 
-                # PROTOTYPE EXTENSION — not yet in the polaris contract. v4
-                # grew this field because a chart cannot be installed without
-                # knowing which chart, and a real requirement is the only
-                # thing that grows the contract. Everything else in this file
-                # is verbatim from polaris; this block goes there as its own
-                # PR — README changelog row, upstream note — before the
-                # operator moves.
+                # How the application's software gets installed. A union of
+                # named installers, one key per installer kind (the same idiom
+                # as a Pod volume's configMap|secret|persistentVolumeClaim):
+                # fill exactly one — the CEL rule below makes the API server
+                # itself refuse zero or two, at write time, with our message.
+                # The `helm` branch is upstream in polaris (PR #29); the
+                # `clickhouse` branch is a PROTOTYPE EXTENSION proving the
+                # operator-backed path, PR'd to polaris once it works.
                 source:
                   type: object
-                  required:
-                    - chart
-                    - repo
-                    - version
+                  x-kubernetes-validations:
+                    - rule: "[has(self.helm), has(self.clickhouse)].filter(x, x).size() == 1"
+                      message: "source must name exactly one installer: helm or clickhouse"
                   properties:
-                    chart:
-                      type: string
-                    repo:
-                      type: string
-                    version:
-                      type: string
-                    # Chart values, as the YAML string helm-controller takes.
-                    values:
-                      type: string
+                    # Install a Helm chart: the operator writes a HelmChart
+                    # resource and delegates to the cluster's helm-controller.
+                    helm:
+                      type: object
+                      required:
+                        - chart
+                        - repo
+                        - version
+                      properties:
+                        chart:
+                          type: string
+                        repo:
+                          type: string
+                        version:
+                          type: string
+                        # Chart values, as the YAML string helm-controller
+                        # takes.
+                        values:
+                          type: string
+                    # Run ClickHouse via its official operator: our operator
+                    # writes a ClickHouseCluster and, silently, everything a
+                    # database needs that the author shouldn't have to know
+                    # about — a KeeperCluster for coordination and an admin
+                    # Secret minted before the database is born.
+                    clickhouse:
+                      type: object
+                      required:
+                        - version
+                      properties:
+                        # Exact server version — becomes the image tag
+                        # clickhouse/clickhouse-server:<version>. Always
+                        # pinned: the lab showed an unpinned cluster resolves
+                        # to whatever is newest.
+                        version:
+                          type: string
+                        replicas:
+                          type: integer
+                          minimum: 1
+                        shards:
+                          type: integer
+                          minimum: 1
+                        # Data volume size per pod, e.g. "2Gi".
+                        storage:
+                          type: string
 
                 # How a permission decision becomes a real grant. `gate` is a
                 # Datum extension to DPS P1's push|delegate, added because

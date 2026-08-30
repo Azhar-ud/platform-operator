@@ -6,8 +6,10 @@ shape: what each field promises, and who keeps the promise.
 Schema: [`crd/applicationmanifest.yaml`](../crd/applicationmanifest.yaml), version
 `v1alpha1`. The contract's home is now polaris
 (`gitops/platform/application-manifest/`), merged there via PR #7 — the copy
-here is verbatim from polaris **plus one prototype extension, `source`**, which
-goes to polaris as its own PR before the operator moves.
+here is verbatim from polaris **plus one prototype extension, the `clickhouse`
+branch of `source`** (the `helm` branch is upstream in polaris PR #29); the
+branch goes to polaris as its own PR once proven, which is how `source` itself
+earned its way there.
 
 ```yaml
 apiVersion: platform.datumlabs.io/v1alpha1
@@ -16,12 +18,11 @@ metadata:
   name: clickhouse
 spec:
   source:
-    chart: clickhouse
-    repo: https://charts.bitnami.com/bitnami
-    version: "6.2.16"  # pin it. always
-    values: |
+    clickhouse:
+      version: "26.8.1.2041"  # pin it. always
+      replicas: 1
       shards: 1
-      replicaCount: 1
+      storage: 2Gi
   identity:
     driver: gateway
   entitlements:
@@ -40,7 +41,7 @@ spec:
 
 | Field | Promises | Required |
 |---|---|---|
-| `source` | which chart installs this application — repo, chart, pinned version | no |
+| `source` | which installer runs this application — one named branch, exactly one | no |
 | `identity` | that users can log in, and that accounts can be provisioned in | yes |
 | `entitlements` | what there is to grant: the objects and actions permissions are made of | no |
 | `surface` | that the platform can reach the application, and that my-apps can draw its tile | yes |
@@ -51,22 +52,40 @@ spec:
 
 ### `source`
 
-Where the application's software comes from: a Helm chart, named by `repo`,
-`chart` and `version` — pinned always, because "whatever is newest" is a state
-nobody can roll back to — plus optional `values`, the YAML string handed to
-Helm as-is.
+Where the application's software comes from. A union of named installers —
+one key per installer kind, fill exactly one (a CEL rule makes the API server
+itself refuse zero or two), the same idiom as a Pod volume's
+`configMap` | `secret` | `persistentVolumeClaim`:
 
-Grew at v4, because the operator could not install a chart without knowing
-which chart, and a real requirement is the only thing that grows the contract.
-An application that ships nothing to install (or is installed by other means)
-omits it; the operator answers `phase: Unmanaged` and manages the namespace
-only.
+- **`helm`** — a chart, named by `repo`, `chart` and `version` (pinned always,
+  because "whatever is newest" is a state nobody can roll back to), plus
+  optional `values`, the YAML string handed to Helm as-is. The operator writes
+  one `HelmChart` object; k3s's helm-controller installs it.
+- **`clickhouse`** — the official ClickHouse operator runs the database:
+  `version` (required, becomes the pinned official image tag), `replicas`,
+  `shards`, `storage`. The operator writes a `ClickHouseCluster` plus two
+  things the author deliberately never names: a `KeeperCluster` (coordination
+  quorum, odd-sized — platform knowledge) and an admin Secret
+  (`<name>-admin`), minted **before** the database so it is born knowing a
+  credential we own. Requires the ClickHouse operator installed once as
+  platform furniture — the same dependency shape as `helm` needing
+  helm-controller, which merely happens to ship inside k3s.
 
-This is the one field the operator itself consumes end to end: it becomes a
-`HelmChart` object that k3s's helm-controller installs. It is not yet in the
-polaris contract nor in DPS P1 — taking it there is open work, alongside the
-extensions already proposed in
+Grew at v4 (`helm`), became a union at the official-operator migration
+(2026-08-31): the CTO's call to run databases on their official operators
+needed `source` to say "run this database", not "install this chart" — and
+the union lets future engines (`kafka:`, `postgres:`) arrive as additive
+branches instead of reshapes. Same delegation either way: the operator
+installs nothing itself; it writes a description and a specialist cooks.
+An application that ships nothing to install omits the field; the operator
+answers `phase: Unmanaged` and manages the namespace only.
+
+The `helm` branch is upstream in polaris (PR #29); the `clickhouse` branch is
+the prototype extension proving the operator-backed path, PR'd once proven —
+alongside the extensions already proposed in
 [datum-standards#35](https://github.com/datumlabsio/datum-standards/issues/35).
+With `clickhouse`, bitnamilegacy — the frozen, never-patched image archive the
+`helm` install leaned on — exits the platform entirely.
 
 A wrinkle this section used to record — the hostname appearing both in
 `surface.host` and inside `source.values` as the chart's ingress — is closed
@@ -354,6 +373,20 @@ can read.
   all neutralized, full wipe-and-rebuild from the manifest alone, and a
   cold incognito browser reaching `currentUser() = dev-analyst` off a
   single Keycloak login.
+- **2026-08-31** — `source` became a union of named installers (`helm` |
+  `clickhouse`, exactly one, CEL-enforced), and ClickHouse moved to its
+  official operator (CTO decision): official images (bitnamilegacy retired),
+  keeper coordination, admin credential minted by us before the database,
+  `operator/warehouse.py` as the translator. The `helm` branch went upstream
+  (polaris PR #29). The wipe-and-rebuild caught three real bugs, each now a
+  rule: the operator's `image` is an object (`{repository, tag}`), the ledger
+  Secret is named by the **app** (never the Service — one parameter had
+  carried two meanings), and the gateway's upstream discovery explicitly
+  refuses the gateway's own Service (a self-loop latent since v5, surviving
+  on alphabetical accident). Verified live: 9-line source → running warehouse
+  → SSO door → `currentUser() = dev-analyst`. New platform-furniture
+  dependency: the ClickHouse operator (and its cert-manager question),
+  installed before any `source.clickhouse` manifest.
 
 ## Not yet covered
 

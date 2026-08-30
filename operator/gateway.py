@@ -88,25 +88,39 @@ def _ingress_ip() -> str:
 def _upstream(name: str, app_ns: str) -> str:
     """The service the proxy forwards approved traffic to.
 
-    Convention, not contract: the Service labeled as this application's
-    instance, on its port named `http`. Every chart so far satisfies it.
-    The contract grows a field for this the day a real application breaks
-    the convention - not before.
+    Convention, not contract - two conventions now, one per installer kind:
+    Helm charts label their Service as the release's instance; the official
+    ClickHouse operator labels its headless Service `app=<name>-clickhouse`.
+    Both name the port `http`, which is the part that actually matters.
+    The contract grows an explicit upstream field the day a real
+    application breaks both conventions - not before.
     """
-    services = cast(
-        kubernetes.client.V1ServiceList,
-        kubernetes.client.CoreV1Api().list_namespaced_service(
-            app_ns, label_selector=f"app.kubernetes.io/instance={name}"
-        ),
-    ).items or []
-    for svc in services:
-        assert svc.metadata and svc.spec
-        for port in svc.spec.ports or []:
-            if port.name == "http":
-                return f"http://{svc.metadata.name}:{port.port}"
-    # The chart may not be up yet; reconcile will come around again.
+    selectors = (
+        f"app.kubernetes.io/instance={name}",  # Helm charts
+        f"app={name}-clickhouse",              # the official ClickHouse operator
+    )
+    for selector in selectors:
+        services = cast(
+            kubernetes.client.V1ServiceList,
+            kubernetes.client.CoreV1Api().list_namespaced_service(
+                app_ns, label_selector=selector
+            ),
+        ).items or []
+        for svc in services:
+            assert svc.metadata and svc.spec
+            # Never the gateway's own Service: it wears the instance label
+            # and an http port too, and picking it forwards the proxy to
+            # itself - a request loop the first operator-backed rebuild
+            # found (Bitnami's service name merely sorted first; the loop
+            # was always one alphabetical accident away).
+            if (svc.metadata.labels or {}).get("app.kubernetes.io/name") == "gateway":
+                continue
+            for port in svc.spec.ports or []:
+                if port.name == "http":
+                    return f"http://{svc.metadata.name}:{port.port}"
+    # The install may not be up yet; reconcile will come around again.
     raise kopf.TemporaryError(
-        f"no service labeled app.kubernetes.io/instance={name} with an http port in {app_ns}",
+        f"no service with an http port matching {' or '.join(selectors)} in {app_ns}",
         delay=30,
     )
 

@@ -4,25 +4,16 @@ metadata:
   name: clickhouse
 spec:
   source:
-    chart: clickhouse
-    repo: https://charts.bitnami.com/bitnami
-    version: "6.2.16"  # pin it. always
-    # The chart's default image is gone — Bitnami gated its registry in the
-    # 2025 relicensing — so the image comes from their legacy mirror. The
-    # default shape is also a 6-pod cluster; one node is what the platform
-    # needs today. No password here: the chart generates one into a Secret.
-    values: |
+    # The official ClickHouse operator runs the database — official images,
+    # no bitnamilegacy, no chart. Keeper and the admin Secret are not named
+    # here on purpose: a database needs them, so the platform provides them.
+    # Nothing here can open a side door either: no chart means no chart
+    # ingress on surface.host.
+    clickhouse:
+      version: "26.8.1.2041"  # pin it. always — unpinned resolves to newest
+      replicas: 1
       shards: 1
-      replicaCount: 1
-      zookeeper:
-        enabled: false
-      image:
-        repository: bitnamilegacy/clickhouse
-      persistence:
-        size: 2Gi
-      # No ingress from the chart: surface.host is the operator's to route,
-      # and it routes to the login gateway. A chart ingress on the same host
-      # would be an unauthenticated door around it.
+      storage: 2Gi
   identity:
     # gateway, not ldap-bridge: humans come through the auth proxy on the HTTP
     # interface, native clients use service accounts. Decided on polaris PR #7.

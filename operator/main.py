@@ -11,6 +11,12 @@
 #   Controllers all the way down: every chart in the ecosystem becomes
 #   installable through the manifest, and the operator grew by one object.
 #
+#   `source` became a union of named installers when the official ClickHouse
+#   operator arrived: source.helm keeps the path above, source.clickhouse
+#   writes the CRs that operator reconciles instead (warehouse.py). Same
+#   delegation, more knowledgeable cook. Exactly-one-branch is the API
+#   server's job (a CEL rule in the CRD), not this loop's.
+#
 #   OWNERSHIP, now the easy way. The HelmChart is created in the manifest's
 #   own namespace (targetNamespace points at the app's), so kopf.adopt()
 #   finally works: delete the manifest and garbage collection deletes the
@@ -43,6 +49,7 @@ from kubernetes.client.exceptions import ApiException
 import gateway
 import keycloak
 import reconciler
+import warehouse
 
 GROUP = "platform.datumlabs.io"
 VERSION = "v1alpha1"
@@ -149,11 +156,25 @@ def reconcile(spec, name, namespace, patch, logger, **_):
         logger.info("no source in %s; namespace only", name)
         return
 
-    apply_helmchart(name, namespace, app_ns, source)
-    logger.info(
-        "applied helmchart %s (%s@%s -> %s)",
-        name, source["chart"], source["version"], app_ns,
-    )
+    # The union: exactly one installer, enforced by the CRD's CEL rule at
+    # write time. A stored object may predate the union (flat chart fields at
+    # the top of source) - read, never assume, so that shape still installs.
+    helm = source.get("helm") or (source if "chart" in source else None)
+    clickhouse = source.get("clickhouse")
+    if helm:
+        apply_helmchart(name, namespace, app_ns, helm)
+        logger.info(
+            "applied helmchart %s (%s@%s -> %s)",
+            name, helm["chart"], helm["version"], app_ns,
+        )
+    elif clickhouse:
+        warehouse.apply(name, app_ns, clickhouse, logger)
+    else:
+        # Stored under a schema this operator predates: honest and inert,
+        # like a manifest with no source at all.
+        patch.status["phase"] = "Unmanaged"
+        logger.info("source in %s names no installer this operator knows", name)
+        return
     patch.status["phase"] = "Deploying"
 
     # The second translation: identity.driver gateway means this application
@@ -235,16 +256,19 @@ def push_grants(spec, name, status, patch, logger, **_):
     (entitlements), and makes the warehouse match. A quiet tick writes
     nothing anywhere - the converge compares before it fixes.
 
-    The service the SQL lands on is the release the operator itself
-    installed, so its name is the manifest's name - the same convention the
-    gateway discovers its upstream by.
+    The service the SQL lands on depends on who installed the database:
+    a chart's release is named after the manifest, the official ClickHouse
+    operator names its Service by its own convention (warehouse.py states
+    it once).
     """
     if (spec.get("reconciler") or {}).get("mode") != "push":
         return
 
+    source = spec.get("source") or {}
+    service = warehouse.service_name(name) if "clickhouse" in source else name
     summary = reconciler.converge(
         app_ns=f"app-{name}",
-        service=name,
+        service=service,
         entitlements=spec.get("entitlements") or {},
         platform_users=keycloak.list_platform_users(),
         logger=logger,
