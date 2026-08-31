@@ -1,13 +1,18 @@
 # platform-operator
 
+> **This repo is retired as the operator's home. The code moved to polaris —
+> [`polaris/platform-operator/`](https://github.com/datumlabsio/polaris/pull/34)
+> — where it gained tests, lint/type conformance, a Helm chart, CI, and the
+> federated-username fix that never landed here. Fix bugs THERE. What remains
+> here is the prototype's history (v1–v9, told by the commit log and
+> `progress.md`) and the local-cluster scripts, which are still handy.**
+
 A Kubernetes operator for the Datum platform. It watches for `ApplicationManifest`
 objects — short YAML files describing how an application is reached and how it
 handles identity — and makes the cluster match them.
 
 The goal is that onboarding a new application becomes writing a YAML file rather
 than running a project.
-
-> Repo name is not final; it gets decided with the team.
 
 ## Quick start
 

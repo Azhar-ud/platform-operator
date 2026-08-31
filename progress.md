@@ -1,4 +1,10 @@
-# Progress — platform-operator (through 2026-08-31)
+# Progress — platform-operator (through 2026-08-31, FINAL)
+
+> **RETIRED.** The operator's home is polaris (`platform-operator/` +
+> `gitops/charts/platform-operator/`, PR #34). Everything after v9 — the
+> python-ci stage, 29 tests, ruff/mypy conformance, the federated-username
+> fix (names displayed, subs trusted) — happened THERE and never came back
+> here. This file is the prototype's closing record, not a live tracker.
 
 Session keypoints. Written before a context compaction; the full reasoning lives in
 `docs/contract.md`, the commit messages, and the visual explainer artifact:
@@ -122,13 +128,17 @@ https://claude.ai/code/artifact/0710e4e0-0bf3-4ba4-8ba1-eb18a706e5a7
 
 ## Next moves (agreed direction)
 
-1. **Polaris migration** (IN PROGRESS): v9 in-cluster is DONE. Remaining:
-   polaris PR #29 review (OPEN; Usman message DRAFTED, NOT SENT) → operator
-   PR to polaris (placement per ADR-0005 = `gitops/charts/platform-operator/`
-   + values in `gitops/values/`; add folder to CI `changed-paths` +
-   `container-platform-operator` job + `publish-*` in release.yml with unique
-   image-name; team questions: who reviews Python, ClickHouse-operator
-   install as gitops dir not runbook step, `application/` naming collision).
+1. **Polaris migration** (IN PROGRESS): v9 in-cluster DONE. PR #29 MERGED
+   2026-08-31. Operator PR fully DRAFTED on local polaris branch
+   `feat/platform-operator` (3 commits rebased onto merged main: clickhouse
+   CRD branch, component+chart+runbook, CI wiring) — NOT pushed, PR NOT
+   opened, Usman message NOT sent; all await Azhar's word. Open questions
+   for the PR grew from the team's open PRs (#27/#31/#32/#33): Google SSO
+   usernames are emails → `@` breaks `_ident` AND ledger Secret keys (fix:
+   sub-claim or sanitized keying — not yet built); #32 splits values into
+   local/proxmox (our values file must follow); #33's `applications:` list
+   overlaps `keycloak.ensure_client`; cert-manager arrives via #33/#31
+   (answers the ClickHouse-operator webhook question).
 2. **Dagster** (`manifests/dagster.yaml`) — second app, zero code changes expected;
    pre-known friction: Bitnami postgres subchart image, upstream port-name convention,
    hosts entry; exercises `gate` + shim passthrough. Independent — slots anywhere.
